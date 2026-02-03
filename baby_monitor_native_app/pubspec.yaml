@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   shared_preferences: ^2.2.2
   local_auth: ^2.3.0
+  video_player: ^2.9.2
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:
@@ -62,6 +64,7 @@ flutter:
   # Assets for the application (KOA cover image, etc.).
   assets:
     - assets/images/koa_cover.png
+    - assets/videos/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
