@@ -1903,16 +1903,13 @@ class SettingsPage extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('has_infant_profile', false);
-      // Opcional: limpiar más datos si es necesario
-      // await prefs.remove('infant_name');
-      // await prefs.remove('infant_birthdate');
+      // No borramos los datos del perfil, solo cerramos sesión
+      // El perfil sigue existiendo para seleccionarlo después
       
       if (context.mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (_) => const BiometricLoginPage(hasInfantProfile: false),
+            builder: (_) => const ProfileSelectionPage(),
           ),
           (route) => false,
         );
