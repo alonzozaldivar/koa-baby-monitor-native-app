@@ -222,6 +222,7 @@ class IntroVideoPage extends StatefulWidget {
 class _IntroVideoPageState extends State<IntroVideoPage> {
   late VideoPlayerController _controller;
   bool _isInitialized = false;
+  bool _hasNavigated = false;
 
   @override
   void initState() {
@@ -230,34 +231,46 @@ class _IntroVideoPageState extends State<IntroVideoPage> {
       'assets/videos/video_intro_koa.mp4',
     )
       ..initialize().then((_) {
-        setState(() {
-          _isInitialized = true;
-        });
-        _controller.play();
+        if (mounted) {
+          setState(() {
+            _isInitialized = true;
+          });
+          _controller.play();
+        }
       });
 
-    _controller.addListener(() {
-      if (_controller.value.position >= _controller.value.duration &&
-          _controller.value.isInitialized) {
-        _goNext();
-      }
-    });
+    _controller.addListener(_onVideoProgress);
+  }
+
+  void _onVideoProgress() {
+    if (_hasNavigated) return;
+    if (_controller.value.position >= _controller.value.duration &&
+        _controller.value.isInitialized) {
+      _hasNavigated = true;
+      // Diferir navegación para evitar conflicto con frame rendering
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _goNext();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_onVideoProgress);
     _controller.dispose();
     super.dispose();
   }
 
   void _goNext() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => BiometricLoginPage(
-          hasInfantProfile: widget.hasInfantProfile,
+    if (_hasNavigated && mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => BiometricLoginPage(
+            hasInfantProfile: widget.hasInfantProfile,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   @override
@@ -337,11 +350,13 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
   Future<void> _checkAndInitialize() async {
     // Si no hay perfil de bebé, ir directo al registro
     if (!widget.hasInfantProfile) {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const InfantRegistrationPage()),
-        );
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const InfantRegistrationPage()),
+          );
+        }
+      });
       return;
     }
 
@@ -351,11 +366,13 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
 
     if (!_hasRegisteredFace) {
       // Si no hay rostro registrado, ir a registrarlo
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const FaceRegistrationPage()),
-        );
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const FaceRegistrationPage()),
+          );
+        }
+      });
       return;
     }
 
@@ -796,17 +813,18 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
 
       _cameraController = CameraController(
         frontCamera,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.nv21,
       );
 
       await _cameraController!.initialize();
 
       _faceDetector = FaceDetector(
         options: FaceDetectorOptions(
-          enableClassification: true,
-          enableTracking: true,
-          performanceMode: FaceDetectorMode.accurate,
+          enableContours: false,
+          enableLandmarks: false,
+          performanceMode: FaceDetectorMode.fast,
         ),
       );
 
@@ -914,16 +932,27 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
 
   InputImage? _convertCameraImage(CameraImage image) {
     try {
-      final format = InputImageFormatValue.fromRawValue(image.format.raw);
-      if (format == null) return null;
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in image.planes) {
+        allBytes.putUint8List(plane.bytes);
+      }
+      final bytes = allBytes.done().buffer.asUint8List();
+
+      final imageRotation = InputImageRotationValue.fromRawValue(
+        _cameraController!.description.sensorOrientation,
+      );
+      if (imageRotation == null) return null;
+
+      final inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw);
+      if (inputImageFormat == null) return null;
 
       return InputImage.fromBytes(
-        bytes: image.planes[0].bytes,
+        bytes: bytes,
         metadata: InputImageMetadata(
           size: Size(image.width.toDouble(), image.height.toDouble()),
-          rotation: InputImageRotation.rotation270deg,
-          format: format,
-          bytesPerRow: image.planes[0].bytesPerRow,
+          rotation: imageRotation,
+          format: inputImageFormat,
+          bytesPerRow: image.planes.first.bytesPerRow,
         ),
       );
     } catch (_) {
@@ -1818,9 +1847,23 @@ class InfantProfileHeader extends StatelessWidget {
         final age = snapshot.data?['age'] as String? ?? '';
         final gender = snapshot.data?['gender'] as String? ?? 'otro';
         final photoBytes = snapshot.data?['photo'] as Uint8List?;
-        final isBoy = gender.toLowerCase() == 'niño';
-        final headerColor = isBoy ? const Color(0xFFB3D9FF) : const Color(0xFFF7C7C7);
-        final avatarBg = isBoy ? const Color(0xFFE0F0FF) : const Color(0xFFFDEFEF);
+        
+        // Colores según género: azul=masculino, rosa=femenino, amarillo=otro
+        Color headerColor;
+        Color avatarBg;
+        switch (gender.toLowerCase()) {
+          case 'masculino':
+            headerColor = const Color(0xFFB3D9FF); // Azul claro
+            avatarBg = const Color(0xFFE0F0FF);
+            break;
+          case 'femenino':
+            headerColor = const Color(0xFFF7C7C7); // Rosa
+            avatarBg = const Color(0xFFFDEFEF);
+            break;
+          default: // 'otro' o cualquier valor
+            headerColor = const Color(0xFFFFF3B0); // Amarillo claro
+            avatarBg = const Color(0xFFFFFDE7);
+        }
 
         return Container(
           decoration: BoxDecoration(
@@ -2658,6 +2701,10 @@ class _InfantRegistrationPageState extends State<InfantRegistrationPage> {
   }
 
   Future<void> _pickBirthDate() async {
+    // Diferir para evitar conflicto con Navigator lock
+    await Future.delayed(Duration.zero);
+    if (!mounted) return;
+
     final now = DateTime.now();
     final initialDate = _birthDate ?? now;
     // Permite registrar bebés/niños hasta 10 años atrás
@@ -2671,7 +2718,7 @@ class _InfantRegistrationPageState extends State<InfantRegistrationPage> {
       locale: const Locale('es', ''),
     );
 
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _birthDate = picked;
       });
@@ -2892,8 +2939,9 @@ class _InfantRegistrationPageState extends State<InfantRegistrationPage> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      GestureDetector(
+                      InkWell(
                         onTap: _pickBirthDate,
+                        borderRadius: BorderRadius.circular(16),
                         child: InputDecorator(
                           decoration: const InputDecoration(
                             labelText: 'Fecha de nacimiento',
