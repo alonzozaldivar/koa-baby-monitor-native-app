@@ -106,6 +106,10 @@ class AppState extends ChangeNotifier {
       'setup_face_desc': {'es': 'Registra tu rostro para acceder rápidamente a KOA', 'en': 'Register your face for quick access to KOA'},
       'skip_for_now': {'es': 'Omitir por ahora', 'en': 'Skip for now'},
       'camera_error': {'es': 'Error al acceder a la cámara', 'en': 'Error accessing camera'},
+      'register_face_title': {'es': 'Registra tu rostro', 'en': 'Register your face'},
+      'register_face_subtitle': {'es': 'Para acceso rápido y seguro a KOA', 'en': 'For quick and secure access to KOA'},
+      'position_face_register': {'es': 'Coloca tu rostro dentro del óvalo', 'en': 'Place your face inside the oval'},
+      'error_capture': {'es': 'Error al capturar. Intenta de nuevo.', 'en': 'Capture error. Try again.'},
     };
     return translations[key]?[isSpanish ? 'es' : 'en'] ?? key;
   }
@@ -315,6 +319,7 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
   late Animation<double> _pulseAnimation;
   int _faceDetectedFrames = 0;
   static const int _requiredFrames = 15; // ~0.5 seconds at 30fps
+  bool _hasRegisteredFace = false;
 
   @override
   void initState() {
@@ -326,6 +331,35 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+    _checkAndInitialize();
+  }
+
+  Future<void> _checkAndInitialize() async {
+    // Si no hay perfil de bebé, ir directo al registro
+    if (!widget.hasInfantProfile) {
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const InfantRegistrationPage()),
+        );
+      }
+      return;
+    }
+
+    // Verificar si hay rostro registrado
+    final prefs = await SharedPreferences.getInstance();
+    _hasRegisteredFace = prefs.getString('user_face_photo') != null;
+
+    if (!_hasRegisteredFace) {
+      // Si no hay rostro registrado, ir a registrarlo
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const FaceRegistrationPage()),
+        );
+      }
+      return;
+    }
+
+    // Hay rostro registrado, iniciar autenticación facial
     _initializeCamera();
   }
 
@@ -448,25 +482,28 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
 
     await _cameraController?.stopImageStream();
 
-    // Simula verificación (en producción compararías con foto guardada)
-    await Future.delayed(const Duration(milliseconds: 1500));
+    // Captura la foto actual para comparar
+    try {
+      final image = await _cameraController?.takePicture();
+      if (image != null) {
+        // En una implementación real, aquí compararíamos las características faciales
+        // Por ahora, si hay rostro detectado = autenticación exitosa
+        await Future.delayed(const Duration(milliseconds: 1000));
 
-    if (!mounted) return;
+        if (!mounted) return;
 
-    // Por ahora, si detecta rostro = autenticación exitosa
-    // En producción, aquí compararías con el rostro registrado
-    final prefs = await SharedPreferences.getInstance();
-    final hasRegisteredFace = prefs.getString('user_face_data') != null;
+        setState(() {
+          _authSuccess = true;
+          _statusMessage = 'auth_success';
+        });
 
-    if (hasRegisteredFace || true) { // Siempre exitoso por ahora
-      setState(() {
-        _authSuccess = true;
-        _statusMessage = 'auth_success';
-      });
-
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (mounted) _goNext();
-    } else {
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (mounted) _goNext();
+      } else {
+        throw Exception('No se pudo capturar la imagen');
+      }
+    } catch (e) {
+      if (!mounted) return;
       setState(() {
         _authFailed = true;
         _statusMessage = 'auth_failed';
@@ -722,7 +759,388 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
   }
 }
 
-// Painter para el overlay del óvalo facial
+// ============================================================================
+// FACE REGISTRATION PAGE - Página para registrar rostro del usuario
+// ============================================================================
+class FaceRegistrationPage extends StatefulWidget {
+  const FaceRegistrationPage({super.key});
+
+  @override
+  State<FaceRegistrationPage> createState() => _FaceRegistrationPageState();
+}
+
+class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
+  CameraController? _cameraController;
+  FaceDetector? _faceDetector;
+  bool _isInitialized = false;
+  bool _faceDetected = false;
+  bool _isProcessing = false;
+  bool _registrationSuccess = false;
+  String _statusMessage = '';
+  int _countdown = 0;
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    try {
+      final cameras = await availableCameras();
+      final frontCamera = cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+
+      _cameraController = CameraController(
+        frontCamera,
+        ResolutionPreset.high,
+        enableAudio: false,
+      );
+
+      await _cameraController!.initialize();
+
+      _faceDetector = FaceDetector(
+        options: FaceDetectorOptions(
+          enableClassification: true,
+          enableTracking: true,
+          performanceMode: FaceDetectorMode.accurate,
+        ),
+      );
+
+      if (mounted) {
+        setState(() => _isInitialized = true);
+        _startFaceDetection();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _statusMessage = 'error_camera');
+      }
+    }
+  }
+
+  void _startFaceDetection() {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+
+    _cameraController!.startImageStream((image) async {
+      if (_isProcessing || _registrationSuccess) return;
+      _isProcessing = true;
+
+      try {
+        final inputImage = _convertCameraImage(image);
+        if (inputImage != null) {
+          final faces = await _faceDetector!.processImage(inputImage);
+          if (mounted && !_registrationSuccess) {
+            final detected = faces.isNotEmpty;
+            setState(() {
+              _faceDetected = detected;
+              if (detected && _countdown == 0) {
+                _startCountdown();
+              } else if (!detected) {
+                _cancelCountdown();
+              }
+            });
+          }
+        }
+      } catch (_) {}
+
+      _isProcessing = false;
+    });
+  }
+
+  void _startCountdown() {
+    if (_countdown > 0) return;
+    _countdown = 3;
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _countdown--;
+        if (_countdown <= 0) {
+          timer.cancel();
+          _captureAndSaveFace();
+        }
+      });
+    });
+  }
+
+  void _cancelCountdown() {
+    _countdownTimer?.cancel();
+    if (mounted) {
+      setState(() => _countdown = 0);
+    }
+  }
+
+  Future<void> _captureAndSaveFace() async {
+    if (_cameraController == null || _registrationSuccess) return;
+
+    try {
+      await _cameraController!.stopImageStream();
+      final image = await _cameraController!.takePicture();
+      final bytes = await image.readAsBytes();
+      final base64Image = base64Encode(bytes);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_face_photo', base64Image);
+
+      if (mounted) {
+        setState(() {
+          _registrationSuccess = true;
+          _statusMessage = 'face_registered';
+        });
+
+        // Navegar después de 1.5 segundos
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const MainNavigationPage()),
+            );
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _statusMessage = 'error_capture');
+        // Reintentar
+        _startFaceDetection();
+      }
+    }
+  }
+
+  InputImage? _convertCameraImage(CameraImage image) {
+    try {
+      final format = InputImageFormatValue.fromRawValue(image.format.raw);
+      if (format == null) return null;
+
+      return InputImage.fromBytes(
+        bytes: image.planes[0].bytes,
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: InputImageRotation.rotation270deg,
+          format: format,
+          bytesPerRow: image.planes[0].bytesPerRow,
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _skipRegistration() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MainNavigationPage()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    _cameraController?.dispose();
+    _faceDetector?.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = Provider.of<AppState>(context);
+    final size = MediaQuery.of(context).size;
+    final ovalWidth = size.width * 0.65;
+    final ovalHeight = ovalWidth * 1.35;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A2E),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Camera preview
+          if (_isInitialized && _cameraController != null)
+            ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.center,
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: size.width,
+                    height: size.width * _cameraController!.value.aspectRatio,
+                    child: CameraPreview(_cameraController!),
+                  ),
+                ),
+              ),
+            )
+          else
+            const Center(
+              child: CircularProgressIndicator(color: Color(0xFFB6D7A8)),
+            ),
+
+          // Face overlay
+          CustomPaint(
+            size: Size.infinite,
+            painter: FaceOverlayPainter(
+              ovalWidth: ovalWidth,
+              ovalHeight: ovalHeight,
+              faceDetected: _faceDetected,
+              isSuccess: _registrationSuccess,
+              isFailed: false,
+            ),
+          ),
+
+          // Oval border
+          Center(
+            child: Transform.translate(
+              offset: const Offset(0, -40),
+              child: Container(
+                width: ovalWidth,
+                height: ovalHeight,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.all(
+                    Radius.elliptical(ovalWidth / 2, ovalHeight / 2),
+                  ),
+                  border: Border.all(
+                    color: _registrationSuccess
+                        ? const Color(0xFF4CAF50)
+                        : _faceDetected
+                            ? const Color(0xFFB6D7A8)
+                            : Colors.white54,
+                    width: _registrationSuccess ? 4 : 3,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Header
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'KOA',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFB6D7A8),
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    appState.tr('register_face_title'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    appState.tr('register_face_subtitle'),
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Countdown indicator
+          if (_countdown > 0)
+            Center(
+              child: Transform.translate(
+                offset: const Offset(0, -40),
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFB6D7A8).withValues(alpha: 0.9),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$_countdown',
+                      style: const TextStyle(
+                        fontSize: 48,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Bottom controls
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 60,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Success indicator
+                  if (_registrationSuccess)
+                    const Icon(
+                      Icons.check_circle,
+                      color: Color(0xFF4CAF50),
+                      size: 64,
+                    ),
+
+                  const SizedBox(height: 16),
+
+                  // Status message
+                  Text(
+                    _registrationSuccess
+                        ? appState.tr('face_registered')
+                        : _faceDetected
+                            ? (_countdown > 0
+                                ? appState.tr('hold_still')
+                                : appState.tr('face_detected'))
+                            : appState.tr('position_face_register'),
+                    style: TextStyle(
+                      color: _registrationSuccess
+                          ? const Color(0xFF4CAF50)
+                          : Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Skip button
+                  if (!_registrationSuccess)
+                    TextButton(
+                      onPressed: _skipRegistration,
+                      child: Text(
+                        appState.tr('skip_for_now'),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Painter para el óvalo facial
 class FaceOverlayPainter extends CustomPainter {
   final double ovalWidth;
   final double ovalHeight;
@@ -2289,8 +2707,9 @@ class _InfantRegistrationPageState extends State<InfantRegistrationPage> {
 
     if (!mounted) return;
 
+    // Navegar a registro facial
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const KoaHomePage()),
+      MaterialPageRoute(builder: (_) => const FaceRegistrationPage()),
     );
   }
 
