@@ -19,9 +19,17 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 class AppState extends ChangeNotifier {
   bool _isDarkMode = false;
   Locale _locale = const Locale('es');
+  int _profileRefreshKey = 0;
 
   bool get isDarkMode => _isDarkMode;
   Locale get locale => _locale;
+  int get profileRefreshKey => _profileRefreshKey;
+
+  // Llamar cuando se actualice el perfil del bebé
+  void refreshProfile() {
+    _profileRefreshKey++;
+    notifyListeners();
+  }
 
   AppState() {
     _loadPreferences();
@@ -110,6 +118,24 @@ class AppState extends ChangeNotifier {
       'register_face_subtitle': {'es': 'Para acceso rápido y seguro a KOA', 'en': 'For quick and secure access to KOA'},
       'position_face_register': {'es': 'Coloca tu rostro dentro del óvalo', 'en': 'Place your face inside the oval'},
       'error_capture': {'es': 'Error al capturar. Intenta de nuevo.', 'en': 'Capture error. Try again.'},
+      // Profile selection
+      'select_profile': {'es': 'Selecciona un perfil', 'en': 'Select a profile'},
+      'your_babies': {'es': 'Tus bebés', 'en': 'Your babies'},
+      'add_new_baby': {'es': 'Agregar nuevo bebé', 'en': 'Add new baby'},
+      'tap_to_access': {'es': 'Toca para acceder', 'en': 'Tap to access'},
+      // Profile menu options
+      'profile_options': {'es': 'Opciones del perfil', 'en': 'Profile options'},
+      'change_photo': {'es': 'Cambiar foto', 'en': 'Change photo'},
+      'edit_name': {'es': 'Editar nombre', 'en': 'Edit name'},
+      'edit_birthdate': {'es': 'Editar fecha de nacimiento', 'en': 'Edit birthdate'},
+      'edit_gender': {'es': 'Editar género', 'en': 'Edit gender'},
+      'delete_profile': {'es': 'Eliminar perfil', 'en': 'Delete profile'},
+      'delete_confirm': {'es': '¿Seguro que quieres eliminar este perfil?', 'en': 'Are you sure you want to delete this profile?'},
+      'delete': {'es': 'Eliminar', 'en': 'Delete'},
+      'save': {'es': 'Guardar', 'en': 'Save'},
+      'enter_name': {'es': 'Ingresa el nombre', 'en': 'Enter name'},
+      'profile_deleted': {'es': 'Perfil eliminado', 'en': 'Profile deleted'},
+      'changes_saved': {'es': 'Cambios guardados', 'en': 'Changes saved'},
     };
     return translations[key]?[isSpanish ? 'es' : 'en'] ?? key;
   }
@@ -117,16 +143,11 @@ class AppState extends ChangeNotifier {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  final hasInfantProfile = prefs.getBool('has_infant_profile') ?? false;
-
-  runApp(MyApp(hasInfantProfile: hasInfantProfile));
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key, required this.hasInfantProfile});
-
-  final bool hasInfantProfile;
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -151,8 +172,8 @@ class MyApp extends StatelessWidget {
             darkTheme: _buildDarkTheme(),
             themeMode: appState.isDarkMode ? ThemeMode.dark : ThemeMode.light,
             home: kIsWeb
-                ? BiometricLoginPage(hasInfantProfile: hasInfantProfile)
-                : IntroVideoPage(hasInfantProfile: hasInfantProfile),
+                ? const ProfileSelectionPage()
+                : const IntroVideoPage(),
           );
         },
       ),
@@ -210,10 +231,306 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class IntroVideoPage extends StatefulWidget {
-  const IntroVideoPage({super.key, required this.hasInfantProfile});
+// ============================================================================
+// PROFILE SELECTION PAGE - Selección de perfil existente o crear nuevo
+// ============================================================================
+class ProfileSelectionPage extends StatefulWidget {
+  const ProfileSelectionPage({super.key});
 
-  final bool hasInfantProfile;
+  @override
+  State<ProfileSelectionPage> createState() => _ProfileSelectionPageState();
+}
+
+class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
+  Map<String, dynamic>? _profileData;
+  bool _isLoading = true;
+  int _lastRefreshKey = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = Provider.of<AppState>(context);
+    if (_lastRefreshKey != appState.profileRefreshKey) {
+      _lastRefreshKey = appState.profileRefreshKey;
+      _loadProfile();
+    }
+  }
+
+  Future<void> _loadProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Verificar si hay perfil por el flag O por datos existentes
+    final hasProfileFlag = prefs.getBool('has_infant_profile') ?? false;
+    final infantName = prefs.getString('infant_name');
+    final hasProfile = hasProfileFlag || (infantName != null && infantName.isNotEmpty);
+    
+    // Si hay datos pero no hay flag, corregir el flag
+    if (!hasProfileFlag && hasProfile) {
+      await prefs.setBool('has_infant_profile', true);
+    }
+    
+    debugPrint('=== ProfileSelectionPage._loadProfile ===');
+    debugPrint('hasProfile: $hasProfile, name: $infantName');
+    
+    if (hasProfile) {
+      final name = infantName ?? 'Bebé';
+      final gender = prefs.getString('infant_gender') ?? 'otro';
+      final photoBase64 = prefs.getString('infant_photo');
+      final birthIso = prefs.getString('infant_birthdate');
+      
+      Uint8List? photoBytes;
+      if (photoBase64 != null && photoBase64.isNotEmpty) {
+        try {
+          photoBytes = base64Decode(photoBase64);
+        } catch (_) {}
+      }
+
+      String ageText = '';
+      if (birthIso != null) {
+        try {
+          final birthDate = DateTime.parse(birthIso);
+          final now = DateTime.now();
+          final diff = now.difference(birthDate);
+          final months = diff.inDays ~/ 30;
+          final days = diff.inDays % 30;
+          ageText = '$months meses, $days días';
+        } catch (_) {}
+      }
+
+      setState(() {
+        _profileData = {
+          'name': name,
+          'gender': gender,
+          'photo': photoBytes,
+          'age': ageText,
+        };
+        _isLoading = false;
+      });
+    } else {
+      setState(() {
+        _profileData = null;
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _selectProfile() {
+    // Ir a autenticación facial
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => const BiometricLoginPage(hasInfantProfile: true),
+      ),
+    );
+  }
+
+  void _createNewProfile() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => const InfantRegistrationPage(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = Provider.of<AppState>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: isDark ? const Color(0xFF1A1A2E) : const Color(0xFFF5FFF3),
+        body: const Center(
+          child: CircularProgressIndicator(color: Color(0xFFB6D7A8)),
+        ),
+      );
+    }
+
+    return Scaffold(
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0, -0.3),
+            radius: 1.2,
+            colors: isDark
+                ? [const Color(0xFF252540), const Color(0xFF1A1A2E)]
+                : [const Color(0xFFE8F7E4), const Color(0xFFCFE8C9), const Color(0xFFB6D7A8)],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const SizedBox(height: 40),
+                // Logo
+                Text(
+                  'KOA',
+                  style: TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 3,
+                    color: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F7A4A),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  appState.tr('select_profile'),
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: isDark ? Colors.white70 : const Color(0xFF6E8F6A),
+                  ),
+                ),
+                const SizedBox(height: 48),
+
+                // Perfil existente
+                if (_profileData != null) ...[
+                  Text(
+                    appState.tr('your_babies'),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white54 : const Color(0xFF6E8F6A),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildProfileCard(appState, isDark),
+                  const SizedBox(height: 32),
+                ],
+
+                // Botón crear nuevo
+                const Spacer(),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _createNewProfile,
+                    icon: const Icon(Icons.add_circle_outline),
+                    label: Text(appState.tr('add_new_baby')),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F7A4A),
+                      side: BorderSide(
+                        color: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F7A4A),
+                        width: 2,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileCard(AppState appState, bool isDark) {
+    final gender = _profileData!['gender'] as String;
+    final photoBytes = _profileData!['photo'] as Uint8List?;
+    final name = _profileData!['name'] as String;
+    final age = _profileData!['age'] as String;
+
+    Color cardColor;
+    Color avatarBg;
+    switch (gender.toLowerCase()) {
+      case 'masculino':
+        cardColor = const Color(0xFFB3D9FF);
+        avatarBg = const Color(0xFFE0F0FF);
+        break;
+      case 'femenino':
+        cardColor = const Color(0xFFF7C7C7);
+        avatarBg = const Color(0xFFFDEFEF);
+        break;
+      default:
+        cardColor = const Color(0xFFFFF3B0);
+        avatarBg = const Color(0xFFFFFDE7);
+    }
+
+    return GestureDetector(
+      onTap: _selectProfile,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 36,
+              backgroundColor: avatarBg,
+              backgroundImage: photoBytes != null ? MemoryImage(photoBytes) : null,
+              child: photoBytes == null
+                  ? const Icon(Icons.child_care, size: 40, color: Color(0xFF4F7A4A))
+                  : null,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF4F4A4A),
+                    ),
+                  ),
+                  if (age.isNotEmpty)
+                    Text(
+                      age,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF6E6A6A),
+                      ),
+                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    appState.tr('tap_to_access'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.black.withValues(alpha: 0.5),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios,
+              color: Color(0xFF4F4A4A),
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class IntroVideoPage extends StatefulWidget {
+  const IntroVideoPage({super.key});
 
   @override
   State<IntroVideoPage> createState() => _IntroVideoPageState();
@@ -265,9 +582,7 @@ class _IntroVideoPageState extends State<IntroVideoPage> {
     if (_hasNavigated && mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => BiometricLoginPage(
-            hasInfantProfile: widget.hasInfantProfile,
-          ),
+          builder: (_) => const ProfileSelectionPage(),
         ),
       );
     }
@@ -1788,10 +2103,35 @@ class KoaHomePage extends StatelessWidget {
   Widget build(BuildContext context) => const MainNavigationPage();
 }
 
-class InfantProfileHeader extends StatelessWidget {
+class InfantProfileHeader extends StatefulWidget {
   const InfantProfileHeader({super.key});
 
-  Future<Map<String, String>> _loadInfantData() async {
+  @override
+  State<InfantProfileHeader> createState() => _InfantProfileHeaderState();
+}
+
+class _InfantProfileHeaderState extends State<InfantProfileHeader> {
+  Map<String, dynamic>? _data;
+  final ImagePicker _picker = ImagePicker();
+  int _lastRefreshKey = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = Provider.of<AppState>(context);
+    if (_lastRefreshKey != appState.profileRefreshKey) {
+      _lastRefreshKey = appState.profileRefreshKey;
+      _loadData();
+    }
+  }
+
+  Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     final name = prefs.getString('infant_name') ?? 'Tu bebé';
     final secondName = prefs.getString('infant2_name');
@@ -1804,9 +2144,7 @@ class InfantProfileHeader extends StatelessWidget {
     if (photoBase64 != null && photoBase64.isNotEmpty) {
       try {
         photoBytes = base64Decode(photoBase64);
-      } catch (_) {
-        photoBytes = null;
-      }
+      } catch (_) {}
     }
 
     String displayName = name;
@@ -1822,128 +2160,411 @@ class InfantProfileHeader extends StatelessWidget {
         final birthDate = DateTime.parse(birthIso);
         final now = DateTime.now();
         final diff = now.difference(birthDate);
-        final totalDays = diff.inDays;
-        final months = totalDays ~/ 30;
-        final days = totalDays % 30;
-        ageText = '${months} months, ${days} days old';
-      } catch (_) {
-        ageText = '';
-      }
+        final months = diff.inDays ~/ 30;
+        final days = diff.inDays % 30;
+        ageText = '$months months, $days days old';
+      } catch (_) {}
     }
 
-    return {
-      'name': displayName,
-      'age': ageText,
-      'gender': gender,
-    };
+    if (mounted) {
+      setState(() {
+        _data = {
+          'name': displayName,
+          'rawName': name,
+          'age': ageText,
+          'gender': gender,
+          'photo': photoBytes,
+          'birthIso': birthIso,
+        };
+      });
+    }
+  }
+
+  void _showProfileMenu(BuildContext context) {
+    final appState = Provider.of<AppState>(context, listen: false);
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              appState.tr('profile_options'),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4F4A4A),
+              ),
+            ),
+            const SizedBox(height: 20),
+            _buildMenuOption(
+              icon: Icons.photo_camera,
+              label: appState.tr('change_photo'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _changePhoto();
+              },
+            ),
+            _buildMenuOption(
+              icon: Icons.edit,
+              label: appState.tr('edit_name'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _editName(appState);
+              },
+            ),
+            _buildMenuOption(
+              icon: Icons.cake,
+              label: appState.tr('edit_birthdate'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _editBirthdate();
+              },
+            ),
+            _buildMenuOption(
+              icon: Icons.wc,
+              label: appState.tr('edit_gender'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _editGender(appState);
+              },
+            ),
+            const Divider(height: 24),
+            _buildMenuOption(
+              icon: Icons.delete_outline,
+              label: appState.tr('delete_profile'),
+              color: Colors.red,
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteProfile(appState);
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMenuOption({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: color ?? const Color(0xFF4F7A4A)),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: 16,
+          color: color ?? const Color(0xFF4F4A4A),
+        ),
+      ),
+      onTap: onTap,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    );
+  }
+
+  Future<void> _changePhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Tomar foto'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Elegir de galería'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
+    try {
+      final picked = await _picker.pickImage(source: source, imageQuality: 80);
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('infant_photo', base64Encode(bytes));
+      _loadData();
+      if (mounted) {
+        Provider.of<AppState>(context, listen: false).refreshProfile();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto actualizada')),
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _editName(AppState appState) async {
+    final controller = TextEditingController(text: _data?['rawName'] ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(appState.tr('edit_name')),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            hintText: appState.tr('enter_name'),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(appState.tr('cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFB6D7A8),
+            ),
+            child: Text(appState.tr('save')),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && result.trim().isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('infant_name', result.trim());
+      _loadData();
+      appState.refreshProfile();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(appState.tr('changes_saved'))),
+        );
+      }
+    }
+  }
+
+  Future<void> _editBirthdate() async {
+    final currentBirth = _data?['birthIso'] != null
+        ? DateTime.tryParse(_data!['birthIso'])
+        : null;
+    final now = DateTime.now();
+    
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: currentBirth ?? now,
+      firstDate: DateTime(now.year - 10),
+      lastDate: now,
+      locale: const Locale('es'),
+    );
+
+    if (picked != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('infant_birthdate', picked.toIso8601String());
+      _loadData();
+      if (mounted) {
+        Provider.of<AppState>(context, listen: false).refreshProfile();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fecha actualizada')),
+        );
+      }
+    }
+  }
+
+  Future<void> _editGender(AppState appState) async {
+    final current = _data?['gender'] ?? 'otro';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(appState.tr('edit_gender')),
+        children: [
+          RadioListTile<String>(
+            title: const Text('Masculino'),
+            value: 'masculino',
+            groupValue: current,
+            onChanged: (v) => Navigator.pop(ctx, v),
+          ),
+          RadioListTile<String>(
+            title: const Text('Femenino'),
+            value: 'femenino',
+            groupValue: current,
+            onChanged: (v) => Navigator.pop(ctx, v),
+          ),
+          RadioListTile<String>(
+            title: const Text('Otro'),
+            value: 'otro',
+            groupValue: current,
+            onChanged: (v) => Navigator.pop(ctx, v),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('infant_gender', result);
+      _loadData();
+      appState.refreshProfile();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(appState.tr('changes_saved'))),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteProfile(AppState appState) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(appState.tr('delete_profile')),
+        content: Text(appState.tr('delete_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(appState.tr('cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text(appState.tr('delete')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('has_infant_profile');
+      await prefs.remove('infant_name');
+      await prefs.remove('infant2_name');
+      await prefs.remove('infant3_name');
+      await prefs.remove('infant_gender');
+      await prefs.remove('infant_birthdate');
+      await prefs.remove('infant_photo');
+      await prefs.remove('user_face_photo');
+
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const ProfileSelectionPage()),
+          (route) => false,
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _loadInfantDataWithPhoto(),
-      builder: (context, snapshot) {
-        final name = snapshot.data?['name'] as String? ?? 'Tu bebé';
-        final age = snapshot.data?['age'] as String? ?? '';
-        final gender = snapshot.data?['gender'] as String? ?? 'otro';
-        final photoBytes = snapshot.data?['photo'] as Uint8List?;
-        
-        // Colores según género: azul=masculino, rosa=femenino, amarillo=otro
-        Color headerColor;
-        Color avatarBg;
-        switch (gender.toLowerCase()) {
-          case 'masculino':
-            headerColor = const Color(0xFFB3D9FF); // Azul claro
-            avatarBg = const Color(0xFFE0F0FF);
-            break;
-          case 'femenino':
-            headerColor = const Color(0xFFF7C7C7); // Rosa
-            avatarBg = const Color(0xFFFDEFEF);
-            break;
-          default: // 'otro' o cualquier valor
-            headerColor = const Color(0xFFFFF3B0); // Amarillo claro
-            avatarBg = const Color(0xFFFFFDE7);
-        }
+    if (_data == null) {
+      return Container(
+        height: 80,
+        decoration: const BoxDecoration(
+          color: Color(0xFFE8F7E4),
+          borderRadius: BorderRadius.only(
+            bottomLeft: Radius.circular(24),
+            bottomRight: Radius.circular(24),
+          ),
+        ),
+        child: const Center(
+          child: CircularProgressIndicator(color: Color(0xFFB6D7A8)),
+        ),
+      );
+    }
 
-        return Container(
-          decoration: BoxDecoration(
-            color: headerColor,
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(24),
-              bottomRight: Radius.circular(24),
+    final name = _data!['name'] as String;
+    final age = _data!['age'] as String;
+    final gender = _data!['gender'] as String;
+    final photoBytes = _data!['photo'] as Uint8List?;
+
+    Color headerColor;
+    Color avatarBg;
+    switch (gender.toLowerCase()) {
+      case 'masculino':
+        headerColor = const Color(0xFFB3D9FF);
+        avatarBg = const Color(0xFFE0F0FF);
+        break;
+      case 'femenino':
+        headerColor = const Color(0xFFF7C7C7);
+        avatarBg = const Color(0xFFFDEFEF);
+        break;
+      default:
+        headerColor = const Color(0xFFFFF3B0);
+        avatarBg = const Color(0xFFFFFDE7);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: headerColor,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: avatarBg,
+            backgroundImage: photoBytes != null ? MemoryImage(photoBytes) : null,
+            child: photoBytes == null
+                ? const Icon(Icons.child_care, color: Color(0xFF4F7A4A), size: 32)
+                : null,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF4F4A4A),
+                  ),
+                ),
+                if (age.isNotEmpty)
+                  Text(
+                    age,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF6E6A6A),
+                    ),
+                  ),
+              ],
             ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: avatarBg,
-                backgroundImage:
-                    photoBytes != null ? MemoryImage(photoBytes) : null,
-                child: photoBytes == null
-                    ? const Icon(
-                        Icons.child_care,
-                        color: Color(0xFF4F7A4A),
-                        size: 32,
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF4F4A4A),
-                      ),
-                    ),
-                    if (age.isNotEmpty)
-                      Text(
-                        age,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF6E6A6A),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.menu, color: Color(0xFF4F4A4A)),
-                onPressed: () {
-                  // En el futuro aquí podemos abrir un Drawer o menú lateral.
-                },
-              ),
-            ],
+          IconButton(
+            icon: const Icon(Icons.menu, color: Color(0xFF4F4A4A)),
+            onPressed: () => _showProfileMenu(context),
           ),
-        );
-      },
+        ],
+      ),
     );
-  }
-
-  Future<Map<String, dynamic>> _loadInfantDataWithPhoto() async {
-    final data = await _loadInfantData();
-    final prefs = await SharedPreferences.getInstance();
-    final photoBase64 = prefs.getString('infant_photo');
-    Uint8List? photoBytes;
-    if (photoBase64 != null && photoBase64.isNotEmpty) {
-      try {
-        photoBytes = base64Decode(photoBase64);
-      } catch (_) {
-        photoBytes = null;
-      }
-    }
-    return {
-      ...data,
-      'photo': photoBytes,
-    };
   }
 }
 
@@ -2734,6 +3355,11 @@ class _InfantRegistrationPageState extends State<InfantRegistrationPage> {
     }
 
     final prefs = await SharedPreferences.getInstance();
+    
+    // Debug: mostrar qué se está guardando
+    debugPrint('=== InfantRegistrationPage._submit ===');
+    debugPrint('Guardando: name=${_nameController.text.trim()}, gender=$_gender, birthDate=$_birthDate');
+    
     await prefs.setBool('has_infant_profile', true);
     await prefs.setString('infant_name', _nameController.text.trim());
     if (_babiesCount >= 2) {
