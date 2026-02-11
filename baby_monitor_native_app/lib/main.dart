@@ -12,6 +12,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // ============================================================================
 // APP STATE - Maneja tema oscuro, idioma y estado global
@@ -102,7 +103,7 @@ class AppState extends ChangeNotifier {
       'face_detected': {'es': 'Rostro detectado', 'en': 'Face detected'},
       'no_face': {'es': 'No se detecta rostro', 'en': 'No face detected'},
       'auth_success': {'es': '¡Autenticación exitosa!', 'en': 'Authentication successful!'},
-      'auth_failed': {'es': 'No se pudo verificar tu identidad', 'en': 'Could not verify your identity'},
+      'auth_failed': {'es': 'Rostro no autorizado. Acceso denegado.', 'en': 'Unauthorized face. Access denied.'},
       'register_face': {'es': 'Registrar rostro', 'en': 'Register face'},
       'face_registered': {'es': 'Rostro registrado correctamente', 'en': 'Face registered successfully'},
       'hold_still': {'es': 'Mantén la posición...', 'en': 'Hold still...'},
@@ -817,13 +818,46 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
     // Captura la foto actual para comparar
     try {
       final image = await _cameraController?.takePicture();
-      if (image != null) {
-        // En una implementación real, aquí compararíamos las características faciales
-        // Por ahora, si hay rostro detectado = autenticación exitosa
-        await Future.delayed(const Duration(milliseconds: 1000));
+      if (image == null) {
+        throw Exception('No se pudo capturar la imagen');
+      }
 
-        if (!mounted) return;
+      // Convertir la imagen capturada a InputImage para ML Kit
+      final inputImage = InputImage.fromFilePath(image.path);
+      final faces = await _faceDetector!.processImage(inputImage);
 
+      if (faces.isEmpty) {
+        throw Exception('No se detectó rostro en la captura');
+      }
+
+      // Comparar con el rostro registrado
+      final prefs = await SharedPreferences.getInstance();
+      final registeredFeaturesJson = prefs.getString('user_face_features');
+      
+      if (registeredFeaturesJson == null) {
+        throw Exception('No hay características faciales registradas');
+      }
+
+      // Extraer características de la cara actual
+      final currentFeatures = _extractFaceFeatures(faces.first);
+      
+      // Decodificar características registradas
+      final registeredFeatures = Map<String, double>.from(
+        jsonDecode(registeredFeaturesJson) as Map
+      );
+
+      // Comparar características faciales
+      final similarity = _compareFaceFeatures(currentFeatures, registeredFeatures);
+      
+      // Umbral de similitud (0.0 a 1.0, donde 1.0 es idéntico)
+      const double similarityThreshold = 0.75;
+      
+      await Future.delayed(const Duration(milliseconds: 1000));
+
+      if (!mounted) return;
+
+      if (similarity >= similarityThreshold) {
+        // Rostro verificado - permitir acceso
         setState(() {
           _authSuccess = true;
           _statusMessage = 'auth_success';
@@ -832,15 +866,90 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
         await Future.delayed(const Duration(milliseconds: 800));
         if (mounted) _goNext();
       } else {
-        throw Exception('No se pudo capturar la imagen');
+        // Rostro NO coincide - denegar acceso
+        throw Exception('Rostro no autorizado (similitud: ${(similarity * 100).toStringAsFixed(1)}%)');
       }
     } catch (e) {
+      debugPrint('Error en verificación facial: $e');
       if (!mounted) return;
       setState(() {
         _authFailed = true;
         _statusMessage = 'auth_failed';
       });
     }
+  }
+
+  // Extrae características faciales únicas para comparación
+  Map<String, double> _extractFaceFeatures(Face face) {
+    final bounds = face.boundingBox;
+    
+    // Características básicas del rostro
+    return {
+      'width': bounds.width,
+      'height': bounds.height,
+      'aspect_ratio': bounds.width / bounds.height,
+      'head_euler_y': face.headEulerAngleY ?? 0.0,
+      'head_euler_z': face.headEulerAngleZ ?? 0.0,
+      // Probabilidades de características (si están disponibles)
+      'smiling_prob': face.smilingProbability ?? 0.5,
+      'left_eye_open': face.leftEyeOpenProbability ?? 0.5,
+      'right_eye_open': face.rightEyeOpenProbability ?? 0.5,
+    };
+  }
+
+  // Compara dos conjuntos de características faciales
+  // Retorna un valor de 0.0 a 1.0 indicando similitud
+  double _compareFaceFeatures(Map<String, double> features1, Map<String, double> features2) {
+    double totalDifference = 0.0;
+    int count = 0;
+
+    // Pesos para diferentes características (algunas son más importantes)
+    final weights = {
+      'aspect_ratio': 2.0,  // Proporción de la cara es muy importante
+      'width': 1.0,
+      'height': 1.0,
+      'head_euler_y': 0.5,
+      'head_euler_z': 0.5,
+      'smiling_prob': 0.3,
+      'left_eye_open': 0.3,
+      'right_eye_open': 0.3,
+    };
+
+    for (final key in features1.keys) {
+      if (features2.containsKey(key)) {
+        final val1 = features1[key]!;
+        final val2 = features2[key]!;
+        final weight = weights[key] ?? 1.0;
+        
+        // Normalizar diferencias
+        double normalizedDiff;
+        if (key == 'aspect_ratio') {
+          // Para aspect ratio, diferencias pequeñas son críticas
+          normalizedDiff = (val1 - val2).abs() / 2.0;
+        } else if (key.contains('euler')) {
+          // Ángulos de rotación (normalizar a 0-1)
+          normalizedDiff = (val1 - val2).abs() / 360.0;
+        } else if (key.contains('prob') || key.contains('open')) {
+          // Probabilidades ya están entre 0-1
+          normalizedDiff = (val1 - val2).abs();
+        } else {
+          // Dimensiones (normalizar por la media)
+          final mean = (val1 + val2) / 2;
+          normalizedDiff = mean > 0 ? (val1 - val2).abs() / mean : 0.0;
+        }
+        
+        totalDifference += normalizedDiff * weight;
+        count++;
+      }
+    }
+
+    if (count == 0) return 0.0;
+    
+    // Convertir diferencia a similitud (invertir y normalizar a 0-1)
+    final avgDifference = totalDifference / count;
+    final similarity = 1.0 - avgDifference.clamp(0.0, 1.0);
+    
+    return similarity.clamp(0.0, 1.0);
   }
 
   void _showError() {
@@ -1218,8 +1327,23 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
       final bytes = await image.readAsBytes();
       final base64Image = base64Encode(bytes);
 
+      // Extraer características faciales de la imagen capturada
+      final inputImage = InputImage.fromFilePath(image.path);
+      final faces = await _faceDetector!.processImage(inputImage);
+      
+      if (faces.isEmpty) {
+        throw Exception('No se detectó rostro en la captura');
+      }
+
+      // Extraer y guardar características del rostro
+      final faceFeatures = _extractFaceFeatures(faces.first);
+      final featuresJson = jsonEncode(faceFeatures);
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_face_photo', base64Image);
+      await prefs.setString('user_face_features', featuresJson);
+
+      debugPrint('Rostro registrado con características: $faceFeatures');
 
       if (mounted) {
         setState(() {
@@ -1237,12 +1361,31 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
         });
       }
     } catch (e) {
+      debugPrint('Error al capturar y guardar rostro: $e');
       if (mounted) {
         setState(() => _statusMessage = 'error_capture');
         // Reintentar
         _startFaceDetection();
       }
     }
+  }
+
+  // Extrae características faciales únicas para comparación
+  Map<String, double> _extractFaceFeatures(Face face) {
+    final bounds = face.boundingBox;
+    
+    // Características básicas del rostro
+    return {
+      'width': bounds.width,
+      'height': bounds.height,
+      'aspect_ratio': bounds.width / bounds.height,
+      'head_euler_y': face.headEulerAngleY ?? 0.0,
+      'head_euler_z': face.headEulerAngleZ ?? 0.0,
+      // Probabilidades de características (si están disponibles)
+      'smiling_prob': face.smilingProbability ?? 0.5,
+      'left_eye_open': face.leftEyeOpenProbability ?? 0.5,
+      'right_eye_open': face.rightEyeOpenProbability ?? 0.5,
+    };
   }
 
   InputImage? _convertCameraImage(CameraImage image) {
@@ -2746,8 +2889,49 @@ class FeedingEntry {
   });
 
   final DateTime time;
-  final double amount; // en ml o minutos, según tipo
-  final String type; // "Pecho izq", "Pecho der", "Biberón"
+  final double amount;
+  final String type;
+  final String? notes;
+}
+
+// Enumeración de etapas de alimentación
+enum FeedingStage {
+  exclusiveLactation, // 0-6 meses
+  complementary,      // 6-12 meses
+  transition,         // 12-24 meses
+  familyFood,         // 24+ meses
+}
+
+// Modelos para la sección de Salud
+class MedicalAppointment {
+  MedicalAppointment({
+    required this.type,
+    required this.date,
+    required this.time,
+    this.notes,
+    this.completed = false,
+  });
+
+  final String type; // 'Vacuna' o 'Cita médica'
+  final DateTime date;
+  final TimeOfDay time;
+  final String? notes;
+  bool completed;
+}
+
+class MedicineReminder {
+  MedicineReminder({
+    required this.name,
+    required this.dosage,
+    required this.frequency,
+    required this.times,
+    this.notes,
+  });
+
+  final String name;
+  final String dosage;
+  final int frequency; // veces al día
+  final List<TimeOfDay> times;
   final String? notes;
 }
 
@@ -2762,9 +2946,110 @@ class _FoodPageState extends State<FoodPage> {
   final _amountController = TextEditingController();
   final _notesController = TextEditingController();
   TimeOfDay _selectedTime = TimeOfDay.now();
-  String _feedingType = 'Pecho izq';
+  String? _feedingType;
   final List<FeedingEntry> _entries = [];
-  int _intervalHours = 3; // cada cuántas horas sugerimos la siguiente toma
+  int _intervalHours = 3;
+  
+  // Datos del bebé
+  int _babyAgeInMonths = 0;
+  String _babyName = 'tu bebé';
+  FeedingStage _stage = FeedingStage.exclusiveLactation;
+  List<String> _feedingTypes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBabyData();
+  }
+
+  Future<void> _loadBabyData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final birthIso = prefs.getString('infant_birthdate');
+    final name = prefs.getString('infant_name') ?? 'tu bebé';
+    
+    int ageInMonths = 0;
+    if (birthIso != null) {
+      try {
+        final birthDate = DateTime.parse(birthIso);
+        final now = DateTime.now();
+        ageInMonths = (now.year - birthDate.year) * 12 + (now.month - birthDate.month);
+        if (now.day < birthDate.day) ageInMonths--;
+      } catch (_) {}
+    }
+    
+    // Determinar etapa e intervalos según edad
+    FeedingStage stage;
+    List<String> types;
+    int interval;
+    
+    if (ageInMonths < 6) {
+      stage = FeedingStage.exclusiveLactation;
+      types = ['Pecho izq', 'Pecho der', 'Biberón (fórmula)'];
+      interval = ageInMonths < 2 ? 2 : 3;
+    } else if (ageInMonths < 12) {
+      stage = FeedingStage.complementary;
+      types = ['Pecho', 'Biberón', 'Papilla de frutas', 'Papilla de verduras', 'Cereal', 'Puré'];
+      interval = 3;
+    } else if (ageInMonths < 24) {
+      stage = FeedingStage.transition;
+      types = ['Pecho', 'Leche', 'Desayuno', 'Almuerzo', 'Cena', 'Merienda', 'Snack'];
+      interval = 4;
+    } else {
+      stage = FeedingStage.familyFood;
+      types = ['Desayuno', 'Almuerzo', 'Cena', 'Merienda', 'Snack', 'Leche'];
+      interval = 4;
+    }
+    
+    if (mounted) {
+      setState(() {
+        _babyAgeInMonths = ageInMonths;
+        _babyName = name;
+        _stage = stage;
+        _feedingTypes = types;
+        _feedingType = types.first;
+        _intervalHours = interval;
+      });
+    }
+  }
+
+  String get _stageName {
+    switch (_stage) {
+      case FeedingStage.exclusiveLactation:
+        return 'Lactancia exclusiva';
+      case FeedingStage.complementary:
+        return 'Alimentación complementaria';
+      case FeedingStage.transition:
+        return 'Transición a sólidos';
+      case FeedingStage.familyFood:
+        return 'Alimentación familiar';
+    }
+  }
+
+  String get _stageTip {
+    switch (_stage) {
+      case FeedingStage.exclusiveLactation:
+        return '🍼 $_babyName está en etapa de lactancia exclusiva. Leche materna o fórmula cada $_intervalHours horas aproximadamente.';
+      case FeedingStage.complementary:
+        return '🍌 Es momento de introducir alimentos suaves! Comienza con papillas y purés, un alimento nuevo cada 3-4 días.';
+      case FeedingStage.transition:
+        return '🥗 $_babyName puede comer más variedad. Introduce texturas más sólidas y deja que explore con las manos.';
+      case FeedingStage.familyFood:
+        return '🍽️ $_babyName puede compartir las comidas familiares. Evita exceso de sal, azúcar y alimentos procesados.';
+    }
+  }
+
+  Color get _stageColor {
+    switch (_stage) {
+      case FeedingStage.exclusiveLactation:
+        return const Color(0xFFE3F2FD); // Azul claro
+      case FeedingStage.complementary:
+        return const Color(0xFFFFF3E0); // Naranja claro
+      case FeedingStage.transition:
+        return const Color(0xFFE8F5E9); // Verde claro
+      case FeedingStage.familyFood:
+        return const Color(0xFFFCE4EC); // Rosa claro
+    }
+  }
 
   @override
   void dispose() {
@@ -2803,10 +3088,12 @@ class _FoodPageState extends State<FoodPage> {
   }
 
   void _addFeeding() {
+    if (_feedingType == null) return;
+    
     final amountText = _amountController.text.trim();
     if (amountText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ingresa la cantidad/minutos de la toma.')),
+        const SnackBar(content: Text('Ingresa la cantidad.')),
       );
       return;
     }
@@ -2833,7 +3120,7 @@ class _FoodPageState extends State<FoodPage> {
         FeedingEntry(
           time: feedingDateTime,
           amount: amount,
-          type: _feedingType,
+          type: _feedingType!,
           notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
         ),
       );
@@ -2856,6 +3143,18 @@ class _FoodPageState extends State<FoodPage> {
   @override
   Widget build(BuildContext context) {
     final next = _nextFeedingTime;
+
+    if (_feedingTypes.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          backgroundColor: const Color(0xFFB6D7A8),
+          title: const Text('Comida'),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(color: Color(0xFFB6D7A8)),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -2882,16 +3181,78 @@ class _FoodPageState extends State<FoodPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Tarjeta de etapa actual
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: _stageColor,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _stageColor.withValues(alpha: 0.5)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            _stage == FeedingStage.exclusiveLactation
+                                ? Icons.water_drop
+                                : _stage == FeedingStage.complementary
+                                    ? Icons.restaurant
+                                    : Icons.lunch_dining,
+                            color: const Color(0xFF4F7A4A),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _stageName,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF4F7A4A),
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF4F7A4A),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$_babyAgeInMonths meses',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _stageTip,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF5D4037),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Próxima toma
                 if (next != null)
                   Container(
                     padding: const EdgeInsets.all(12),
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withValues(alpha: 0.05),
                           blurRadius: 6,
                           offset: const Offset(0, 3),
                         ),
@@ -2903,7 +3264,7 @@ class _FoodPageState extends State<FoodPage> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Próxima toma sugerida a las ${_formatTime(next)} (cada $_intervalHours h).',
+                            'Próxima comida sugerida a las ${_formatTime(next)} (cada $_intervalHours h).',
                             style: const TextStyle(
                               fontSize: 13,
                               color: Color(0xFF4F7A4A),
@@ -2913,6 +3274,8 @@ class _FoodPageState extends State<FoodPage> {
                       ],
                     ),
                   ),
+                  
+                // Formulario de registro
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -2920,7 +3283,7 @@ class _FoodPageState extends State<FoodPage> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 8,
                         offset: const Offset(0, 4),
                       ),
@@ -2930,7 +3293,7 @@ class _FoodPageState extends State<FoodPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Registrar nueva toma',
+                        'Registrar comida',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
@@ -2938,17 +3301,45 @@ class _FoodPageState extends State<FoodPage> {
                         ),
                       ),
                       const SizedBox(height: 12),
+                      
+                      // Tipo de comida (dinámico según etapa)
+                      DropdownButtonFormField<String>(
+                        value: _feedingType,
+                        isExpanded: true,
+                        items: _feedingTypes.map((type) => DropdownMenuItem(
+                          value: type,
+                          child: Text(type),
+                        )).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _feedingType = value);
+                          }
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Tipo de comida',
+                          filled: true,
+                          fillColor: Color(0xFFF5FFF3),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(16)),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      
                       Row(
                         children: [
                           Expanded(
                             child: TextField(
                               controller: _amountController,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              decoration: const InputDecoration(
-                                labelText: 'Cantidad / minutos',
+                              decoration: InputDecoration(
+                                labelText: _stage == FeedingStage.exclusiveLactation
+                                    ? 'ml o minutos'
+                                    : 'Cantidad (g/ml)',
                                 filled: true,
-                                fillColor: Color(0xFFF5FFF3),
-                                border: OutlineInputBorder(
+                                fillColor: const Color(0xFFF5FFF3),
+                                border: const OutlineInputBorder(
                                   borderRadius: BorderRadius.all(Radius.circular(16)),
                                   borderSide: BorderSide.none,
                                 ),
@@ -2957,52 +3348,12 @@ class _FoodPageState extends State<FoodPage> {
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: _feedingType,
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'Pecho izq',
-                                  child: Text('Pecho izq'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'Pecho der',
-                                  child: Text('Pecho der'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'Biberón',
-                                  child: Text('Biberón'),
-                                ),
-                              ],
-                              onChanged: (value) {
-                                if (value != null) {
-                                  setState(() {
-                                    _feedingType = value;
-                                  });
-                                }
-                              },
-                              decoration: const InputDecoration(
-                                labelText: 'Tipo',
-                                filled: true,
-                                fillColor: Color(0xFFF5FFF3),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.all(Radius.circular(16)),
-                                  borderSide: BorderSide.none,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
                             child: InkWell(
                               borderRadius: BorderRadius.circular(16),
                               onTap: _pickTime,
                               child: InputDecorator(
                                 decoration: const InputDecoration(
-                                  labelText: 'Hora de la toma',
+                                  labelText: 'Hora',
                                   filled: true,
                                   fillColor: Color(0xFFF5FFF3),
                                   border: OutlineInputBorder(
@@ -3020,44 +3371,20 @@ class _FoodPageState extends State<FoodPage> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: _notesController,
-                              decoration: const InputDecoration(
-                                labelText: 'Notas (opcional)',
-                                filled: true,
-                                fillColor: Color(0xFFF5FFF3),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.all(Radius.circular(16)),
-                                  borderSide: BorderSide.none,
-                                ),
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          const Text('Intervalo entre tomas:'),
-                          const SizedBox(width: 8),
-                          DropdownButton<int>(
-                            value: _intervalHours,
-                            items: const [
-                              DropdownMenuItem(value: 2, child: Text('2 h')),
-                              DropdownMenuItem(value: 3, child: Text('3 h')),
-                              DropdownMenuItem(value: 4, child: Text('4 h')),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() {
-                                  _intervalHours = value;
-                                });
-                              }
-                            },
+                      TextField(
+                        controller: _notesController,
+                        decoration: const InputDecoration(
+                          labelText: 'Notas (opcional)',
+                          filled: true,
+                          fillColor: Color(0xFFF5FFF3),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(16)),
+                            borderSide: BorderSide.none,
                           ),
-                        ],
+                        ),
                       ),
                       const SizedBox(height: 16),
                       SizedBox(
@@ -3073,15 +3400,15 @@ class _FoodPageState extends State<FoodPage> {
                           ),
                           onPressed: _addFeeding,
                           icon: const Icon(Icons.save),
-                          label: const Text('Guardar toma'),
+                          label: const Text('Guardar'),
                         ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  'Historial de tomas (hoy)',
+                Text(
+                  'Historial de hoy',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -3182,16 +3509,812 @@ class CameraMonitorPage extends StatelessWidget {
   }
 }
 
-class HealthPage extends StatelessWidget {
+class HealthPage extends StatefulWidget {
   const HealthPage({super.key});
 
   @override
+  State<HealthPage> createState() => _HealthPageState();
+}
+
+class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final List<MedicalAppointment> _appointments = [];
+  final List<MedicineReminder> _medicines = [];
+  String _pediatricianName = '';
+  String _pediatricianPhone = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _loadPediatricianData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPediatricianData() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _pediatricianName = prefs.getString('pediatrician_name') ?? '';
+      _pediatricianPhone = prefs.getString('pediatrician_phone') ?? '';
+    });
+  }
+
+  Future<void> _savePediatricianData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('pediatrician_name', _pediatricianName);
+    await prefs.setString('pediatrician_phone', _pediatricianPhone);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return _SimpleSectionScaffold(
-      title: 'Salud',
-      description: 'Espacio para vacunas, peso, altura y citas médicas.',
-      icon: Icons.favorite,
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFB6D7A8),
+        title: const Text('Salud'),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: const Color(0xFF4F7A4A),
+          labelColor: const Color(0xFF4F7A4A),
+          unselectedLabelColor: const Color(0xFF6E8F6A),
+          tabs: const [
+            Tab(icon: Icon(Icons.calendar_today), text: 'Citas'),
+            Tab(icon: Icon(Icons.medication), text: 'Medicinas'),
+            Tab(icon: Icon(Icons.phone), text: 'Pediatra'),
+          ],
+        ),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment(0, -0.1),
+            radius: 1.1,
+            colors: [
+              Color(0xFFE8F7E4),
+              Color(0xFFCFE8C9),
+              Color(0xFFB6D7A8),
+            ],
+          ),
+        ),
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            _buildAppointmentsTab(),
+            _buildMedicinesTab(),
+            _buildPediatricianTab(),
+          ],
+        ),
+      ),
     );
+  }
+
+  // TAB 1: Citas Médicas y Vacunas
+  Widget _buildAppointmentsTab() {
+    final upcoming = _appointments.where((a) => !a.completed && a.date.isAfter(DateTime.now())).toList();
+    upcoming.sort((a, b) => a.date.compareTo(b.date));
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Botón agregar cita
+            ElevatedButton.icon(
+              onPressed: _addAppointment,
+              icon: const Icon(Icons.add),
+              label: const Text('Nueva Cita/Vacuna'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFB6D7A8),
+                foregroundColor: const Color(0xFF355334),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Próximas citas
+            const Text(
+              'Próximas citas',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4F7A4A),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            if (upcoming.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      Icon(Icons.event_available, size: 64, color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No hay citas programadas',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ...upcoming.map((apt) => _buildAppointmentCard(apt)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppointmentCard(MedicalAppointment apt) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: apt.type == 'Vacuna'
+                ? const Color(0xFFE3F2FD)
+                : const Color(0xFFFFF3E0),
+            child: Icon(
+              apt.type == 'Vacuna' ? Icons.vaccines : Icons.local_hospital,
+              color: apt.type == 'Vacuna' ? Colors.blue[700] : Colors.orange[700],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  apt.type,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF4F7A4A),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${apt.date.day}/${apt.date.month}/${apt.date.year} • ${apt.time.format(context)}',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                ),
+                if (apt.notes != null && apt.notes!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      apt.notes!,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.check_circle_outline, color: Color(0xFF4F7A4A)),
+            onPressed: () {
+              setState(() {
+                apt.completed = true;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Cita marcada como completada')),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addAppointment() async {
+    String? type;
+    DateTime? selectedDate;
+    TimeOfDay? selectedTime;
+    final notesController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nueva Cita'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: type,
+                  decoration: const InputDecoration(labelText: 'Tipo'),
+                  items: ['Vacuna', 'Cita médica']
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      .toList(),
+                  onChanged: (val) => setDialogState(() => type = val),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  title: Text(
+                    selectedDate == null
+                        ? 'Seleccionar fecha'
+                        : '${selectedDate!.day}/${selectedDate!.month}/${selectedDate!.year}',
+                  ),
+                  leading: const Icon(Icons.calendar_today),
+                  onTap: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (date != null) {
+                      setDialogState(() => selectedDate = date);
+                    }
+                  },
+                ),
+                ListTile(
+                  title: Text(
+                    selectedTime == null
+                        ? 'Seleccionar hora'
+                        : selectedTime!.format(context),
+                  ),
+                  leading: const Icon(Icons.access_time),
+                  onTap: () async {
+                    final time = await showTimePicker(
+                      context: context,
+                      initialTime: TimeOfDay.now(),
+                    );
+                    if (time != null) {
+                      setDialogState(() => selectedTime = time);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notas (opcional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (type != null && selectedDate != null && selectedTime != null) {
+                setState(() {
+                  _appointments.add(MedicalAppointment(
+                    type: type!,
+                    date: selectedDate!,
+                    time: selectedTime!,
+                    notes: notesController.text.trim().isEmpty
+                        ? null
+                        : notesController.text.trim(),
+                  ));
+                });
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Cita agregada')),
+                );
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // TAB 2: Medicinas
+  Widget _buildMedicinesTab() {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ElevatedButton.icon(
+              onPressed: _addMedicine,
+              icon: const Icon(Icons.add),
+              label: const Text('Agregar Medicamento'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFB6D7A8),
+                foregroundColor: const Color(0xFF355334),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            const Text(
+              'Medicamentos activos',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4F7A4A),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            if (_medicines.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      Icon(Icons.medication, size: 64, color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No hay medicamentos registrados',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ...(_medicines.map((med) => _buildMedicineCard(med))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMedicineCard(MedicineReminder med) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: const Color(0xFFE8F5E9),
+                child: Icon(Icons.medical_services, color: Colors.green[700]),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      med.name,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF4F7A4A),
+                      ),
+                    ),
+                    Text(
+                      med.dosage,
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                onPressed: () {
+                  setState(() => _medicines.remove(med));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Medicamento eliminado')),
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5FFF3),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.alarm, size: 16, color: Color(0xFF4F7A4A)),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${med.frequency}x al día',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF4F7A4A),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: med.times
+                      .map((t) => Chip(
+                            label: Text(
+                              t.format(context),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            backgroundColor: const Color(0xFFB6D7A8),
+                            labelStyle: const TextStyle(color: Colors.white),
+                          ))
+                  .toList(),
+                ),
+                if (med.notes != null && med.notes!.isNotEmpty) const SizedBox(height: 8),
+                if (med.notes != null && med.notes!.isNotEmpty)
+                  Text(
+                    med.notes!,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addMedicine() async {
+    final nameController = TextEditingController();
+    final dosageController = TextEditingController();
+    final notesController = TextEditingController();
+    int frequency = 1;
+    final List<TimeOfDay> times = [TimeOfDay.now()];
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nuevo Medicamento'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre del medicamento',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: dosageController,
+                  decoration: const InputDecoration(
+                    labelText: 'Dosis (ej: 5ml, 1 tableta)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  value: frequency,
+                  decoration: const InputDecoration(labelText: 'Frecuencia diaria'),
+                  items: [1, 2, 3, 4]
+                      .map((f) => DropdownMenuItem(
+                          value: f, child: Text('$f vez${f > 1 ? "es" : ""} al día')))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setDialogState(() {
+                        frequency = val;
+                        times.clear();
+                        for (int i = 0; i < val; i++) {
+                          times.add(TimeOfDay.now());
+                        }
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Horarios:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                ...List.generate(frequency, (i) {
+                  return ListTile(
+                    title: Text(
+                      'Toma ${i + 1}: ${times[i].format(context)}',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    trailing: const Icon(Icons.access_time),
+                    onTap: () async {
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime: times[i],
+                      );
+                      if (time != null) {
+                        setDialogState(() => times[i] = time);
+                      }
+                    },
+                  );
+                }),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notas (opcional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (nameController.text.trim().isNotEmpty &&
+                  dosageController.text.trim().isNotEmpty) {
+                setState(() {
+                  _medicines.add(MedicineReminder(
+                    name: nameController.text.trim(),
+                    dosage: dosageController.text.trim(),
+                    frequency: frequency,
+                    times: times,
+                    notes: notesController.text.trim().isEmpty
+                        ? null
+                        : notesController.text.trim(),
+                  ));
+                });
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Medicamento agregado')),
+                );
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // TAB 3: Pediatra
+  Widget _buildPediatricianTab() {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  const CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Color(0xFFE3F2FD),
+                    child: Icon(
+                      Icons.medical_services,
+                      size: 40,
+                      color: Color(0xFF1976D2),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Mi Pediatra',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF4F7A4A),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  TextField(
+                    decoration: InputDecoration(
+                      labelText: 'Nombre del pediatra',
+                      prefixIcon: const Icon(Icons.person),
+                      filled: true,
+                      fillColor: const Color(0xFFF5FFF3),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onChanged: (value) => _pediatricianName = value,
+                    controller: TextEditingController(text: _pediatricianName)
+                      ..selection = TextSelection.collapsed(
+                          offset: _pediatricianName.length),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    decoration: InputDecoration(
+                      labelText: 'Número de teléfono',
+                      prefixIcon: const Icon(Icons.phone),
+                      filled: true,
+                      fillColor: const Color(0xFFF5FFF3),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    keyboardType: TextInputType.phone,
+                    onChanged: (value) => _pediatricianPhone = value,
+                    controller: TextEditingController(text: _pediatricianPhone)
+                      ..selection = TextSelection.collapsed(
+                          offset: _pediatricianPhone.length),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            await _savePediatricianData();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Datos guardados')),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.save),
+                          label: const Text('Guardar'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFB6D7A8),
+                            foregroundColor: const Color(0xFF355334),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Botón de llamada
+            if (_pediatricianPhone.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.green[400]!,
+                      Colors.green[600]!,
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.green.withValues(alpha: 0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      '¿Necesitas ayuda urgente?',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _callPediatrician,
+                      icon: const Icon(Icons.phone, size: 28),
+                      label: Text(
+                        _pediatricianName.isEmpty
+                            ? 'Llamar al Pediatra'
+                            : 'Llamar a $_pediatricianName',
+                        style: const TextStyle(fontSize: 18),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.green[700],
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 16, horizontal: 24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _callPediatrician() async {
+    if (_pediatricianPhone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Primero ingresa el número del pediatra')),
+      );
+      return;
+    }
+
+    final phoneNumber = _pediatricianPhone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$phoneNumber');
+
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('No se puede realizar la llamada')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al llamar: $e')),
+        );
+      }
+    }
   }
 }
 
