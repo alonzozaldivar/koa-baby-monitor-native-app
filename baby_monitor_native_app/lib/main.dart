@@ -2931,59 +2931,126 @@ class KoaFeatureCard extends StatelessWidget {
   final String description;
   final VoidCallback onTap;
 
+  // Colores pastel adorables para cada tarjeta
+  static final List<Map<String, Color>> _cuteColors = [
+    {
+      'bg': const Color(0xFFFFF8E7),       // Amarillo pastel
+      'border': const Color(0xFFFFD54F),   // Amarillo brillante
+      'icon': const Color(0xFFFFA726),     // Naranja cálido
+    },
+    {
+      'bg': const Color(0xFFE8F5E9),       // Verde menta
+      'border': const Color(0xFF81C784),   // Verde suave
+      'icon': const Color(0xFF4CAF50),     // Verde brillante
+    },
+    {
+      'bg': const Color(0xFFF3E5F5),       // Lavanda pastel
+      'border': const Color(0xFFBA68C8),   // Púrpura suave
+      'icon': const Color(0xFF9C27B0),     // Púrpura vibrante
+    },
+    {
+      'bg': const Color(0xFFFFE0E6),       // Rosa pastel
+      'border': const Color(0xFFFF80AB),   // Rosa brillante
+      'icon': const Color(0xFFFF4081),     // Rosa fucsia
+    },
+  ];
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Rotar colores según el título para que cada tarjeta tenga un color diferente
+    final colorIndex = title.hashCode % _cuteColors.length;
+    final colors = _cuteColors[colorIndex];
+
     return SizedBox(
       width: (MediaQuery.of(context).size.width - 24 * 2 - 16) / 2,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.9),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: onTap,
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF2A2A40) : colors['bg'],
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDark ? const Color(0xFFB6D7A8) : colors['border']!,
+                width: 3,
               ),
-            ],
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFB6D7A8).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: (isDark ? colors['border']! : colors['border']!).withOpacity(0.2),
+                  blurRadius: 12,
+                  offset: const Offset(0, 6),
+                  spreadRadius: 0,
                 ),
-                child: Icon(
-                  icon,
-                  color: const Color(0xFF4F7A4A),
+                BoxShadow(
+                  color: Colors.white.withOpacity(isDark ? 0.05 : 0.5),
+                  blurRadius: 8,
+                  offset: const Offset(0, -2),
+                  spreadRadius: 0,
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF4F7A4A),
+              ],
+            ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Ícono grande en un círculo adorable
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isDark 
+                        ? const Color(0xFFB6D7A8).withOpacity(0.2)
+                        : Colors.white.withOpacity(0.9),
+                    border: Border.all(
+                      color: isDark ? const Color(0xFFB6D7A8) : colors['icon']!,
+                      width: 2.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (isDark ? const Color(0xFFB6D7A8) : colors['icon']!).withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 30,
+                    color: isDark ? const Color(0xFFB6D7A8) : colors['icon'],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                description,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF6E8F6A),
+                const SizedBox(height: 14),
+                // Título con fuente más grande y bold
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F4A4A),
+                    letterSpacing: 0.3,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                // Descripción más sutil
+                Text(
+                  description,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: isDark 
+                        ? Colors.white.withOpacity(0.7)
+                        : const Color(0xFF6E6A6A),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ),
       ),
