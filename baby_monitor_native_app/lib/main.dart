@@ -1,8 +1,15 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -137,6 +144,66 @@ class AppState extends ChangeNotifier {
       'enter_name': {'es': 'Ingresa el nombre', 'en': 'Enter name'},
       'profile_deleted': {'es': 'Perfil eliminado', 'en': 'Profile deleted'},
       'changes_saved': {'es': 'Cambios guardados', 'en': 'Changes saved'},
+      // Diary translations
+      'diary_title': {'es': 'Diario de Recuerdos', 'en': 'Memory Diary'},
+      'milestones': {'es': 'Hitos', 'en': 'Milestones'},
+      'add_milestone': {'es': 'Agregar hito', 'en': 'Add milestone'},
+      'suggested_milestones': {'es': 'Hitos sugeridos', 'en': 'Suggested milestones'},
+      'my_milestones': {'es': 'Mis hitos', 'en': 'My milestones'},
+      'no_milestones': {'es': 'Aún no hay hitos registrados', 'en': 'No milestones recorded yet'},
+      'add_first_milestone': {'es': 'Agrega el primer recuerdo especial', 'en': 'Add the first special memory'},
+      'select_milestone': {'es': 'Selecciona un hito', 'en': 'Select a milestone'},
+      'custom_milestone': {'es': 'Hito personalizado', 'en': 'Custom milestone'},
+      'milestone_title': {'es': 'Título del hito', 'en': 'Milestone title'},
+      'milestone_description': {'es': 'Descripción (opcional)', 'en': 'Description (optional)'},
+      'milestone_date': {'es': 'Fecha del hito', 'en': 'Milestone date'},
+      'add_photo': {'es': 'Agregar foto', 'en': 'Add photo'},
+      'take_photo': {'es': 'Tomar foto', 'en': 'Take photo'},
+      'choose_gallery': {'es': 'Elegir de galería', 'en': 'Choose from gallery'},
+      'milestone_saved': {'es': 'Hito guardado', 'en': 'Milestone saved'},
+      'milestone_deleted': {'es': 'Hito eliminado', 'en': 'Milestone deleted'},
+      'delete_milestone': {'es': 'Eliminar hito', 'en': 'Delete milestone'},
+      'delete_milestone_confirm': {'es': '¿Eliminar este recuerdo?', 'en': 'Delete this memory?'},
+      'generate_album': {'es': 'Generar álbum', 'en': 'Generate album'},
+      'download_album': {'es': 'Descargar álbum', 'en': 'Download album'},
+      'share_album': {'es': 'Compartir álbum', 'en': 'Share album'},
+      'album_preview': {'es': 'Vista previa del álbum', 'en': 'Album preview'},
+      'album_generated': {'es': 'Álbum generado', 'en': 'Album generated'},
+      'album_saved': {'es': 'Álbum guardado en Descargas', 'en': 'Album saved to Downloads'},
+      'generating_album': {'es': 'Generando álbum...', 'en': 'Generating album...'},
+      'age_stage_newborn': {'es': 'Recién nacido', 'en': 'Newborn'},
+      'age_stage_baby': {'es': 'Bebé', 'en': 'Baby'},
+      'age_stage_toddler': {'es': 'Niño pequeño', 'en': 'Toddler'},
+      'age_stage_preschool': {'es': 'Preescolar', 'en': 'Preschooler'},
+      // Milestone names
+      'first_smile': {'es': 'Primera sonrisa', 'en': 'First smile'},
+      'first_bath': {'es': 'Primer baño', 'en': 'First bath'},
+      'held_head': {'es': 'Sostuvo su cabecita', 'en': 'Held head up'},
+      'first_outing': {'es': 'Primer paseo', 'en': 'First outing'},
+      'slept_through': {'es': 'Durmió toda la noche', 'en': 'Slept through the night'},
+      'first_laugh': {'es': 'Primera carcajada', 'en': 'First laugh'},
+      'first_tooth': {'es': 'Primer diente', 'en': 'First tooth'},
+      'first_solids': {'es': 'Primeros sólidos', 'en': 'First solids'},
+      'sat_alone': {'es': 'Se sentó solito', 'en': 'Sat alone'},
+      'first_words': {'es': 'Primeras palabras', 'en': 'First words'},
+      'first_steps': {'es': 'Primeros pasos', 'en': 'First steps'},
+      'first_crawl': {'es': 'Empezó a gatear', 'en': 'Started crawling'},
+      'waved_bye': {'es': 'Dijo adiós con la mano', 'en': 'Waved bye-bye'},
+      'clapped_hands': {'es': 'Aplaudió', 'en': 'Clapped hands'},
+      'first_birthday': {'es': 'Primer cumpleaños', 'en': 'First birthday'},
+      'first_run': {'es': 'Corrió por primera vez', 'en': 'First run'},
+      'first_sentences': {'es': 'Primeras oraciones', 'en': 'First sentences'},
+      'playground_first': {'es': 'Primera vez en el parque', 'en': 'First playground visit'},
+      'potty_trained': {'es': 'Aprendió a usar el baño', 'en': 'Potty trained'},
+      'second_birthday': {'es': 'Segundo cumpleaños', 'en': 'Second birthday'},
+      'first_school': {'es': 'Primer día de escuela', 'en': 'First day of school'},
+      'first_friend': {'es': 'Primer amiguito', 'en': 'First friend'},
+      'first_drawing': {'es': 'Primer dibujo', 'en': 'First drawing'},
+      'learned_colors': {'es': 'Aprendió los colores', 'en': 'Learned colors'},
+      'third_birthday': {'es': 'Tercer cumpleaños', 'en': 'Third birthday'},
+      'first_pet': {'es': 'Primera mascota', 'en': 'First pet'},
+      'first_trip': {'es': 'Primer viaje', 'en': 'First trip'},
+      'special_moment': {'es': 'Momento especial', 'en': 'Special moment'},
     };
     return translations[key]?[isSpanish ? 'es' : 'en'] ?? key;
   }
@@ -4318,15 +4385,1801 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
   }
 }
 
-class MemoriesDiaryPage extends StatelessWidget {
+// ============================================================================
+// MODELO DE HITO (MILESTONE)
+// ============================================================================
+enum MilestoneCategory { physical, social, cognitive, special }
+
+class Milestone {
+  final String id;
+  final String titleKey;
+  final String? customTitle;
+  final String? description;
+  final DateTime? date;
+  final String? photoBase64;
+  final int minAgeMonths;
+  final int maxAgeMonths;
+  final String iconName;
+  final MilestoneCategory category;
+  final bool isCompleted;
+
+  Milestone({
+    required this.id,
+    required this.titleKey,
+    this.customTitle,
+    this.description,
+    this.date,
+    this.photoBase64,
+    required this.minAgeMonths,
+    required this.maxAgeMonths,
+    required this.iconName,
+    required this.category,
+    this.isCompleted = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'titleKey': titleKey,
+    'customTitle': customTitle,
+    'description': description,
+    'date': date?.toIso8601String(),
+    'photoBase64': photoBase64,
+    'minAgeMonths': minAgeMonths,
+    'maxAgeMonths': maxAgeMonths,
+    'iconName': iconName,
+    'category': category.index,
+    'isCompleted': isCompleted,
+  };
+
+  factory Milestone.fromJson(Map<String, dynamic> json) => Milestone(
+    id: json['id'],
+    titleKey: json['titleKey'],
+    customTitle: json['customTitle'],
+    description: json['description'],
+    date: json['date'] != null ? DateTime.parse(json['date']) : null,
+    photoBase64: json['photoBase64'],
+    minAgeMonths: json['minAgeMonths'],
+    maxAgeMonths: json['maxAgeMonths'],
+    iconName: json['iconName'],
+    category: MilestoneCategory.values[json['category']],
+    isCompleted: json['isCompleted'] ?? false,
+  );
+
+  Milestone copyWith({
+    String? id,
+    String? titleKey,
+    String? customTitle,
+    String? description,
+    DateTime? date,
+    String? photoBase64,
+    int? minAgeMonths,
+    int? maxAgeMonths,
+    String? iconName,
+    MilestoneCategory? category,
+    bool? isCompleted,
+  }) => Milestone(
+    id: id ?? this.id,
+    titleKey: titleKey ?? this.titleKey,
+    customTitle: customTitle ?? this.customTitle,
+    description: description ?? this.description,
+    date: date ?? this.date,
+    photoBase64: photoBase64 ?? this.photoBase64,
+    minAgeMonths: minAgeMonths ?? this.minAgeMonths,
+    maxAgeMonths: maxAgeMonths ?? this.maxAgeMonths,
+    iconName: iconName ?? this.iconName,
+    category: category ?? this.category,
+    isCompleted: isCompleted ?? this.isCompleted,
+  );
+
+  IconData get icon {
+    switch (iconName) {
+      case 'sentiment_very_satisfied': return Icons.sentiment_very_satisfied;
+      case 'bathtub': return Icons.bathtub;
+      case 'accessibility_new': return Icons.accessibility_new;
+      case 'stroller': return Icons.stroller;
+      case 'nightlight': return Icons.nightlight;
+      case 'mood': return Icons.mood;
+      case 'face': return Icons.face;
+      case 'restaurant': return Icons.restaurant;
+      case 'event_seat': return Icons.event_seat;
+      case 'record_voice_over': return Icons.record_voice_over;
+      case 'directions_walk': return Icons.directions_walk;
+      case 'directions_run': return Icons.directions_run;
+      case 'pan_tool': return Icons.pan_tool;
+      case 'celebration': return Icons.celebration;
+      case 'cake': return Icons.cake;
+      case 'chat_bubble': return Icons.chat_bubble;
+      case 'park': return Icons.park;
+      case 'wc': return Icons.wc;
+      case 'school': return Icons.school;
+      case 'people': return Icons.people;
+      case 'draw': return Icons.draw;
+      case 'palette': return Icons.palette;
+      case 'pets': return Icons.pets;
+      case 'flight_takeoff': return Icons.flight_takeoff;
+      case 'star': return Icons.star;
+      default: return Icons.emoji_events;
+    }
+  }
+}
+
+// Lista de hitos predefinidos por etapa de edad
+class MilestoneTemplates {
+  static List<Milestone> getTemplatesForAge(int ageInMonths) {
+    final List<Milestone> templates = [];
+    
+    // 0-6 meses - Recién nacido
+    if (ageInMonths <= 12) {
+      templates.addAll([
+        Milestone(id: 'first_smile', titleKey: 'first_smile', minAgeMonths: 0, maxAgeMonths: 3, iconName: 'sentiment_very_satisfied', category: MilestoneCategory.social),
+        Milestone(id: 'first_bath', titleKey: 'first_bath', minAgeMonths: 0, maxAgeMonths: 1, iconName: 'bathtub', category: MilestoneCategory.special),
+        Milestone(id: 'held_head', titleKey: 'held_head', minAgeMonths: 1, maxAgeMonths: 4, iconName: 'accessibility_new', category: MilestoneCategory.physical),
+        Milestone(id: 'first_outing', titleKey: 'first_outing', minAgeMonths: 0, maxAgeMonths: 2, iconName: 'stroller', category: MilestoneCategory.special),
+        Milestone(id: 'slept_through', titleKey: 'slept_through', minAgeMonths: 2, maxAgeMonths: 6, iconName: 'nightlight', category: MilestoneCategory.physical),
+        Milestone(id: 'first_laugh', titleKey: 'first_laugh', minAgeMonths: 2, maxAgeMonths: 5, iconName: 'mood', category: MilestoneCategory.social),
+      ]);
+    }
+    
+    // 6-12 meses - Bebé
+    if (ageInMonths >= 4 && ageInMonths <= 18) {
+      templates.addAll([
+        Milestone(id: 'first_tooth', titleKey: 'first_tooth', minAgeMonths: 4, maxAgeMonths: 12, iconName: 'face', category: MilestoneCategory.physical),
+        Milestone(id: 'first_solids', titleKey: 'first_solids', minAgeMonths: 4, maxAgeMonths: 7, iconName: 'restaurant', category: MilestoneCategory.physical),
+        Milestone(id: 'sat_alone', titleKey: 'sat_alone', minAgeMonths: 5, maxAgeMonths: 9, iconName: 'event_seat', category: MilestoneCategory.physical),
+        Milestone(id: 'first_words', titleKey: 'first_words', minAgeMonths: 8, maxAgeMonths: 14, iconName: 'record_voice_over', category: MilestoneCategory.cognitive),
+        Milestone(id: 'first_crawl', titleKey: 'first_crawl', minAgeMonths: 6, maxAgeMonths: 10, iconName: 'directions_walk', category: MilestoneCategory.physical),
+        Milestone(id: 'first_steps', titleKey: 'first_steps', minAgeMonths: 9, maxAgeMonths: 15, iconName: 'directions_walk', category: MilestoneCategory.physical),
+        Milestone(id: 'waved_bye', titleKey: 'waved_bye', minAgeMonths: 8, maxAgeMonths: 12, iconName: 'pan_tool', category: MilestoneCategory.social),
+        Milestone(id: 'clapped_hands', titleKey: 'clapped_hands', minAgeMonths: 8, maxAgeMonths: 12, iconName: 'celebration', category: MilestoneCategory.social),
+        Milestone(id: 'first_birthday', titleKey: 'first_birthday', minAgeMonths: 12, maxAgeMonths: 12, iconName: 'cake', category: MilestoneCategory.special),
+      ]);
+    }
+    
+    // 12-24 meses - Niño pequeño
+    if (ageInMonths >= 10 && ageInMonths <= 30) {
+      templates.addAll([
+        Milestone(id: 'first_run', titleKey: 'first_run', minAgeMonths: 14, maxAgeMonths: 20, iconName: 'directions_run', category: MilestoneCategory.physical),
+        Milestone(id: 'first_sentences', titleKey: 'first_sentences', minAgeMonths: 18, maxAgeMonths: 26, iconName: 'chat_bubble', category: MilestoneCategory.cognitive),
+        Milestone(id: 'playground_first', titleKey: 'playground_first', minAgeMonths: 12, maxAgeMonths: 24, iconName: 'park', category: MilestoneCategory.special),
+        Milestone(id: 'potty_trained', titleKey: 'potty_trained', minAgeMonths: 18, maxAgeMonths: 36, iconName: 'wc', category: MilestoneCategory.physical),
+        Milestone(id: 'second_birthday', titleKey: 'second_birthday', minAgeMonths: 24, maxAgeMonths: 24, iconName: 'cake', category: MilestoneCategory.special),
+      ]);
+    }
+    
+    // 24+ meses - Preescolar
+    if (ageInMonths >= 20) {
+      templates.addAll([
+        Milestone(id: 'first_school', titleKey: 'first_school', minAgeMonths: 24, maxAgeMonths: 48, iconName: 'school', category: MilestoneCategory.special),
+        Milestone(id: 'first_friend', titleKey: 'first_friend', minAgeMonths: 24, maxAgeMonths: 48, iconName: 'people', category: MilestoneCategory.social),
+        Milestone(id: 'first_drawing', titleKey: 'first_drawing', minAgeMonths: 18, maxAgeMonths: 36, iconName: 'draw', category: MilestoneCategory.cognitive),
+        Milestone(id: 'learned_colors', titleKey: 'learned_colors', minAgeMonths: 24, maxAgeMonths: 42, iconName: 'palette', category: MilestoneCategory.cognitive),
+        Milestone(id: 'third_birthday', titleKey: 'third_birthday', minAgeMonths: 36, maxAgeMonths: 36, iconName: 'cake', category: MilestoneCategory.special),
+        Milestone(id: 'first_pet', titleKey: 'first_pet', minAgeMonths: 24, maxAgeMonths: 72, iconName: 'pets', category: MilestoneCategory.special),
+        Milestone(id: 'first_trip', titleKey: 'first_trip', minAgeMonths: 12, maxAgeMonths: 72, iconName: 'flight_takeoff', category: MilestoneCategory.special),
+      ]);
+    }
+    
+    // Eliminar duplicados por ID
+    final Map<String, Milestone> unique = {};
+    for (final m in templates) {
+      unique[m.id] = m;
+    }
+    
+    return unique.values.toList();
+  }
+}
+
+// ============================================================================
+// MEMORIES DIARY PAGE - Página principal del diario
+// ============================================================================
+class MemoriesDiaryPage extends StatefulWidget {
   const MemoriesDiaryPage({super.key});
 
   @override
+  State<MemoriesDiaryPage> createState() => _MemoriesDiaryPageState();
+}
+
+class _MemoriesDiaryPageState extends State<MemoriesDiaryPage> with SingleTickerProviderStateMixin {
+  List<Milestone> _savedMilestones = [];
+  List<Milestone> _suggestedMilestones = [];
+  int _babyAgeInMonths = 0;
+  String _babyName = '';
+  String _babyGender = 'otro';
+  Uint8List? _babyPhoto;
+  bool _isLoading = true;
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Cargar datos del bebé
+    final birthIso = prefs.getString('infant_birthdate');
+    final name = prefs.getString('infant_name') ?? '';
+    final gender = prefs.getString('infant_gender') ?? 'otro';
+    final photoBase64 = prefs.getString('infant_photo');
+    
+    int ageInMonths = 0;
+    if (birthIso != null) {
+      try {
+        final birthDate = DateTime.parse(birthIso);
+        final now = DateTime.now();
+        ageInMonths = (now.year - birthDate.year) * 12 + (now.month - birthDate.month);
+        if (now.day < birthDate.day) ageInMonths--;
+      } catch (_) {}
+    }
+    
+    Uint8List? photoBytes;
+    if (photoBase64 != null && photoBase64.isNotEmpty) {
+      try {
+        photoBytes = base64Decode(photoBase64);
+      } catch (_) {}
+    }
+    
+    // Cargar hitos guardados
+    final savedJson = prefs.getString('diary_milestones');
+    List<Milestone> saved = [];
+    if (savedJson != null) {
+      try {
+        final List decoded = jsonDecode(savedJson);
+        saved = decoded.map((e) => Milestone.fromJson(e)).toList();
+      } catch (_) {}
+    }
+    
+    // Obtener hitos sugeridos según la edad
+    final templates = MilestoneTemplates.getTemplatesForAge(ageInMonths);
+    // Filtrar los que ya fueron completados
+    final savedIds = saved.map((m) => m.id).toSet();
+    final suggested = templates.where((t) => !savedIds.contains(t.id)).toList();
+    
+    if (mounted) {
+      setState(() {
+        _babyAgeInMonths = ageInMonths;
+        _babyName = name;
+        _babyGender = gender;
+        _babyPhoto = photoBytes;
+        _savedMilestones = saved;
+        _suggestedMilestones = suggested;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveMilestones() async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = jsonEncode(_savedMilestones.map((m) => m.toJson()).toList());
+    await prefs.setString('diary_milestones', json);
+  }
+
+  void _addMilestone(Milestone milestone) {
+    setState(() {
+      _savedMilestones.insert(0, milestone.copyWith(isCompleted: true, date: milestone.date ?? DateTime.now()));
+      _suggestedMilestones.removeWhere((m) => m.id == milestone.id);
+    });
+    _saveMilestones();
+  }
+
+  void _deleteMilestone(String id) {
+    setState(() {
+      _savedMilestones.removeWhere((m) => m.id == id);
+    });
+    _saveMilestones();
+    _loadData(); // Recargar sugerencias
+  }
+
+  Color get _themeColor {
+    switch (_babyGender.toLowerCase()) {
+      case 'masculino': return const Color(0xFFB3D9FF);
+      case 'femenino': return const Color(0xFFF7C7C7);
+      default: return const Color(0xFFB6D7A8);
+    }
+  }
+
+  Color get _accentColor {
+    switch (_babyGender.toLowerCase()) {
+      case 'masculino': return const Color(0xFF5B9BD5);
+      case 'femenino': return const Color(0xFFE8A0A0);
+      default: return const Color(0xFF4F7A4A);
+    }
+  }
+
+  String _getAgeStageLabel(AppState appState) {
+    if (_babyAgeInMonths < 6) return appState.tr('age_stage_newborn');
+    if (_babyAgeInMonths < 12) return appState.tr('age_stage_baby');
+    if (_babyAgeInMonths < 24) return appState.tr('age_stage_toddler');
+    return appState.tr('age_stage_preschool');
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return _SimpleSectionScaffold(
-      title: 'Diario de recuerdos',
-      description: 'Guarda fotos, notas y momentos especiales de tu bebé.',
-      icon: Icons.book,
+    final appState = Provider.of<AppState>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: isDark ? const Color(0xFF1A1A2E) : const Color(0xFFF5FFF3),
+        body: const Center(
+          child: CircularProgressIndicator(color: Color(0xFFB6D7A8)),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF1A1A2E) : const Color(0xFFFFFDF7),
+      appBar: AppBar(
+        backgroundColor: _themeColor,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: isDark ? Colors.white : const Color(0xFF4F4A4A)),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          appState.tr('diary_title'),
+          style: TextStyle(
+            color: isDark ? Colors.white : const Color(0xFF4F4A4A),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        actions: [
+          if (_savedMilestones.isNotEmpty)
+            IconButton(
+              icon: Icon(Icons.photo_album, color: isDark ? Colors.white : const Color(0xFF4F4A4A)),
+              tooltip: appState.tr('generate_album'),
+              onPressed: () => _showAlbumOptions(context, appState),
+            ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: isDark ? Colors.white : const Color(0xFF4F4A4A),
+          unselectedLabelColor: isDark ? Colors.white60 : const Color(0xFF9E9E9E),
+          indicatorColor: _accentColor,
+          tabs: [
+            Tab(text: appState.tr('my_milestones')),
+            Tab(text: appState.tr('suggested_milestones')),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          // Header con info del bebé
+          _buildBabyHeader(appState),
+          // Tabs content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildMyMilestonesTab(appState, isDark),
+                _buildSuggestedMilestonesTab(appState, isDark),
+              ],
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showAddMilestoneSheet(context, appState),
+        backgroundColor: _accentColor,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: Text(appState.tr('add_milestone'), style: const TextStyle(color: Colors.white)),
+      ),
+    );
+  }
+
+  Widget _buildBabyHeader(AppState appState) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _themeColor.withValues(alpha: 0.3),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundColor: _themeColor,
+            backgroundImage: _babyPhoto != null ? MemoryImage(_babyPhoto!) : null,
+            child: _babyPhoto == null
+                ? Icon(Icons.child_care, color: _accentColor, size: 32)
+                : null,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _babyName.isNotEmpty ? _babyName : 'Mi bebé',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: _accentColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _accentColor.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${_getAgeStageLabel(appState)} · $_babyAgeInMonths ${appState.tr('months')}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _accentColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            children: [
+              Icon(Icons.emoji_events, color: _accentColor, size: 28),
+              Text(
+                '${_savedMilestones.length}',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _accentColor,
+                ),
+              ),
+              Text(
+                appState.tr('milestones'),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: _accentColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMyMilestonesTab(AppState appState, bool isDark) {
+    if (_savedMilestones.isEmpty) {
+      return _buildEmptyState(appState, isDark);
+    }
+
+    // Ordenar por fecha (más reciente primero)
+    final sorted = List<Milestone>.from(_savedMilestones)
+      ..sort((a, b) => (b.date ?? DateTime.now()).compareTo(a.date ?? DateTime.now()));
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: sorted.length,
+      itemBuilder: (context, index) {
+        return _MilestoneCard(
+          milestone: sorted[index],
+          appState: appState,
+          themeColor: _themeColor,
+          accentColor: _accentColor,
+          onDelete: () => _confirmDeleteMilestone(context, appState, sorted[index].id),
+          onTap: () => _showMilestoneDetail(context, appState, sorted[index]),
+        );
+      },
+    );
+  }
+
+  Widget _buildSuggestedMilestonesTab(AppState appState, bool isDark) {
+    if (_suggestedMilestones.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle, size: 64, color: _accentColor),
+            const SizedBox(height: 16),
+            Text(
+              '¡Has completado todos los hitos!',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white70 : const Color(0xFF4F4A4A),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _suggestedMilestones.length,
+      itemBuilder: (context, index) {
+        final milestone = _suggestedMilestones[index];
+        return _SuggestedMilestoneCard(
+          milestone: milestone,
+          appState: appState,
+          themeColor: _themeColor,
+          accentColor: _accentColor,
+          babyAgeInMonths: _babyAgeInMonths,
+          onAdd: () => _showAddMilestoneSheet(context, appState, template: milestone),
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState(AppState appState, bool isDark) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: _themeColor.withValues(alpha: 0.3),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.auto_stories,
+                size: 64,
+                color: _accentColor,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              appState.tr('no_milestones'),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white70 : const Color(0xFF4F4A4A),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              appState.tr('add_first_milestone'),
+              style: TextStyle(
+                fontSize: 14,
+                color: isDark ? Colors.white54 : const Color(0xFF9E9E9E),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () {
+                _tabController.animateTo(1); // Ir a sugerencias
+              },
+              icon: const Icon(Icons.lightbulb_outline),
+              label: Text(appState.tr('suggested_milestones')),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _accentColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddMilestoneSheet(BuildContext context, AppState appState, {Milestone? template}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AddMilestoneSheet(
+        appState: appState,
+        template: template,
+        themeColor: _themeColor,
+        accentColor: _accentColor,
+        onSave: (milestone) {
+          _addMilestone(milestone);
+          Navigator.pop(ctx);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(appState.tr('milestone_saved')),
+              backgroundColor: _accentColor,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _confirmDeleteMilestone(BuildContext context, AppState appState, String id) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(appState.tr('delete_milestone')),
+        content: Text(appState.tr('delete_milestone_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(appState.tr('cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _deleteMilestone(id);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(appState.tr('milestone_deleted')),
+                  backgroundColor: Colors.redAccent,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: Text(appState.tr('delete')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMilestoneDetail(BuildContext context, AppState appState, Milestone milestone) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _MilestoneDetailPage(
+          milestone: milestone,
+          appState: appState,
+          themeColor: _themeColor,
+          accentColor: _accentColor,
+          babyName: _babyName,
+        ),
+      ),
+    );
+  }
+
+  void _showAlbumOptions(BuildContext context, AppState appState) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              appState.tr('generate_album'),
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4F4A4A),
+              ),
+            ),
+            const SizedBox(height: 24),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _themeColor.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.download, color: _accentColor),
+              ),
+              title: Text(appState.tr('download_album')),
+              subtitle: const Text('PDF con diseño cute'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _generateAndSaveAlbum(context, appState);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _themeColor.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.share, color: _accentColor),
+              ),
+              title: Text(appState.tr('share_album')),
+              subtitle: const Text('Compartir con familia'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _generateAndShareAlbum(context, appState);
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _generateAndSaveAlbum(BuildContext context, AppState appState) async {
+    _showLoadingDialog(context, appState.tr('generating_album'));
+    
+    try {
+      final pdfBytes = await _generatePdfAlbum(appState);
+      
+      // Solicitar permiso de almacenamiento
+      if (Platform.isAndroid) {
+        final status = await Permission.storage.request();
+        if (!status.isGranted) {
+          if (mounted) Navigator.pop(context);
+          return;
+        }
+      }
+      
+      // Guardar en descargas
+      final directory = await getApplicationDocumentsDirectory();
+      final fileName = 'album_${_babyName.replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final file = File('${directory.path}/$fileName');
+      await file.writeAsBytes(pdfBytes);
+      
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(appState.tr('album_saved')),
+            backgroundColor: _accentColor,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _generateAndShareAlbum(BuildContext context, AppState appState) async {
+    _showLoadingDialog(context, appState.tr('generating_album'));
+    
+    try {
+      final pdfBytes = await _generatePdfAlbum(appState);
+      
+      final directory = await getTemporaryDirectory();
+      final fileName = 'album_${_babyName.replaceAll(' ', '_')}.pdf';
+      final file = File('${directory.path}/$fileName');
+      await file.writeAsBytes(pdfBytes);
+      
+      if (mounted) {
+        Navigator.pop(context);
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Álbum de recuerdos de $_babyName 💕',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showLoadingDialog(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(color: _accentColor),
+            const SizedBox(width: 20),
+            Text(message),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<Uint8List> _generatePdfAlbum(AppState appState) async {
+    final pdf = pw.Document();
+    
+    // Colores cute según género
+    PdfColor mainColor;
+    PdfColor lightColor;
+    switch (_babyGender.toLowerCase()) {
+      case 'masculino':
+        mainColor = const PdfColor.fromInt(0xFF5B9BD5);
+        lightColor = const PdfColor.fromInt(0xFFE8F4FD);
+        break;
+      case 'femenino':
+        mainColor = const PdfColor.fromInt(0xFFE8A0A0);
+        lightColor = const PdfColor.fromInt(0xFFFFF0F0);
+        break;
+      default:
+        mainColor = const PdfColor.fromInt(0xFF4F7A4A);
+        lightColor = const PdfColor.fromInt(0xFFE8F7E4);
+    }
+
+    // Portada
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) {
+          return pw.Container(
+            color: lightColor,
+            child: pw.Center(
+              child: pw.Column(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
+                children: [
+                  pw.Container(
+                    padding: const pw.EdgeInsets.all(20),
+                    decoration: pw.BoxDecoration(
+                      color: mainColor,
+                      borderRadius: pw.BorderRadius.circular(100),
+                    ),
+                    child: pw.Text(
+                      '👶',
+                      style: const pw.TextStyle(fontSize: 60),
+                    ),
+                  ),
+                  pw.SizedBox(height: 30),
+                  pw.Text(
+                    'Álbum de Recuerdos',
+                    style: pw.TextStyle(
+                      fontSize: 32,
+                      fontWeight: pw.FontWeight.bold,
+                      color: mainColor,
+                    ),
+                  ),
+                  pw.SizedBox(height: 10),
+                  pw.Text(
+                    _babyName,
+                    style: pw.TextStyle(
+                      fontSize: 28,
+                      color: mainColor,
+                    ),
+                  ),
+                  pw.SizedBox(height: 30),
+                  pw.Text(
+                    '✨ ${_savedMilestones.length} momentos especiales ✨',
+                    style: pw.TextStyle(
+                      fontSize: 16,
+                      color: mainColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    // Páginas de hitos
+    final sorted = List<Milestone>.from(_savedMilestones)
+      ..sort((a, b) => (a.date ?? DateTime.now()).compareTo(b.date ?? DateTime.now()));
+
+    for (var i = 0; i < sorted.length; i++) {
+      final milestone = sorted[i];
+      final title = milestone.customTitle ?? appState.tr(milestone.titleKey);
+      final dateStr = milestone.date != null
+          ? DateFormat('dd MMMM yyyy', appState.locale.languageCode).format(milestone.date!)
+          : '';
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return pw.Container(
+              padding: const pw.EdgeInsets.all(40),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  // Header decorativo
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: pw.BoxDecoration(
+                      color: lightColor,
+                      borderRadius: pw.BorderRadius.circular(20),
+                    ),
+                    child: pw.Text(
+                      '⭐ Momento #${i + 1} ⭐',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        color: mainColor,
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(height: 20),
+                  // Título
+                  pw.Text(
+                    title,
+                    style: pw.TextStyle(
+                      fontSize: 28,
+                      fontWeight: pw.FontWeight.bold,
+                      color: mainColor,
+                    ),
+                    textAlign: pw.TextAlign.center,
+                  ),
+                  pw.SizedBox(height: 10),
+                  // Fecha
+                  if (dateStr.isNotEmpty)
+                    pw.Text(
+                      '📅 $dateStr',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                  pw.SizedBox(height: 30),
+                  // Foto
+                  if (milestone.photoBase64 != null)
+                    pw.Container(
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: mainColor, width: 4),
+                        borderRadius: pw.BorderRadius.circular(20),
+                      ),
+                      child: pw.ClipRRect(
+                        horizontalRadius: 16,
+                        verticalRadius: 16,
+                        child: pw.Image(
+                          pw.MemoryImage(base64Decode(milestone.photoBase64!)),
+                          width: 350,
+                          height: 350,
+                          fit: pw.BoxFit.cover,
+                        ),
+                      ),
+                    )
+                  else
+                    pw.Container(
+                      width: 350,
+                      height: 350,
+                      decoration: pw.BoxDecoration(
+                        color: lightColor,
+                        borderRadius: pw.BorderRadius.circular(20),
+                        border: pw.Border.all(color: mainColor, width: 2),
+                      ),
+                      child: pw.Center(
+                        child: pw.Text(
+                          '📷',
+                          style: const pw.TextStyle(fontSize: 80),
+                        ),
+                      ),
+                    ),
+                  pw.SizedBox(height: 20),
+                  // Descripción
+                  if (milestone.description != null && milestone.description!.isNotEmpty)
+                    pw.Container(
+                      padding: const pw.EdgeInsets.all(16),
+                      decoration: pw.BoxDecoration(
+                        color: lightColor,
+                        borderRadius: pw.BorderRadius.circular(12),
+                      ),
+                      child: pw.Text(
+                        milestone.description!,
+                        style: const pw.TextStyle(
+                          fontSize: 14,
+                          color: PdfColors.grey800,
+                        ),
+                        textAlign: pw.TextAlign.center,
+                      ),
+                    ),
+                  pw.Spacer(),
+                  // Footer cute
+                  pw.Text(
+                    '💕 Con amor, para $_babyName 💕',
+                    style: pw.TextStyle(
+                      fontSize: 12,
+                      color: mainColor,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    return pdf.save();
+  }
+}
+
+// ============================================================================
+// MILESTONE CARD - Tarjeta de hito completado
+// ============================================================================
+class _MilestoneCard extends StatelessWidget {
+  const _MilestoneCard({
+    required this.milestone,
+    required this.appState,
+    required this.themeColor,
+    required this.accentColor,
+    required this.onDelete,
+    required this.onTap,
+  });
+
+  final Milestone milestone;
+  final AppState appState;
+  final Color themeColor;
+  final Color accentColor;
+  final VoidCallback onDelete;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = milestone.customTitle ?? appState.tr(milestone.titleKey);
+    final dateStr = milestone.date != null
+        ? DateFormat('dd MMM yyyy', appState.locale.languageCode).format(milestone.date!)
+        : '';
+    final hasPhoto = milestone.photoBase64 != null;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Foto o placeholder
+              if (hasPhoto)
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Image.memory(
+                    base64Decode(milestone.photoBase64!),
+                    fit: BoxFit.cover,
+                  ),
+                )
+              else
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [themeColor.withValues(alpha: 0.5), themeColor],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: Center(
+                      child: Icon(
+                        milestone.icon,
+                        size: 64,
+                        color: accentColor.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                ),
+              // Info
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: themeColor.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(milestone.icon, color: accentColor, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: accentColor,
+                            ),
+                          ),
+                          if (dateStr.isNotEmpty)
+                            Text(
+                              '📅 $dateStr',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                      onPressed: onDelete,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// SUGGESTED MILESTONE CARD - Tarjeta de hito sugerido
+// ============================================================================
+class _SuggestedMilestoneCard extends StatelessWidget {
+  const _SuggestedMilestoneCard({
+    required this.milestone,
+    required this.appState,
+    required this.themeColor,
+    required this.accentColor,
+    required this.babyAgeInMonths,
+    required this.onAdd,
+  });
+
+  final Milestone milestone;
+  final AppState appState;
+  final Color themeColor;
+  final Color accentColor;
+  final int babyAgeInMonths;
+  final VoidCallback onAdd;
+
+  String _getAgeRangeText() {
+    if (milestone.minAgeMonths == milestone.maxAgeMonths) {
+      return '${milestone.minAgeMonths} meses';
+    }
+    return '${milestone.minAgeMonths}-${milestone.maxAgeMonths} meses';
+  }
+
+  bool get _isInRange => 
+      babyAgeInMonths >= milestone.minAgeMonths && 
+      babyAgeInMonths <= milestone.maxAgeMonths;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = appState.tr(milestone.titleKey);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: _isInRange
+            ? Border.all(color: accentColor, width: 2)
+            : null,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: _isInRange
+                ? accentColor.withValues(alpha: 0.2)
+                : themeColor.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            milestone.icon,
+            color: _isInRange ? accentColor : Colors.grey[600],
+            size: 24,
+          ),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: _isInRange ? accentColor : Colors.grey[700],
+          ),
+        ),
+        subtitle: Row(
+          children: [
+            Icon(
+              Icons.schedule,
+              size: 14,
+              color: _isInRange ? accentColor : Colors.grey[500],
+            ),
+            const SizedBox(width: 4),
+            Text(
+              _getAgeRangeText(),
+              style: TextStyle(
+                fontSize: 12,
+                color: _isInRange ? accentColor : Colors.grey[500],
+              ),
+            ),
+            if (_isInRange) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: accentColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  '¡Ahora!',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        trailing: IconButton(
+          onPressed: onAdd,
+          icon: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: accentColor,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.add, color: Colors.white, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// ADD MILESTONE SHEET - Bottom sheet para agregar hito
+// ============================================================================
+class _AddMilestoneSheet extends StatefulWidget {
+  const _AddMilestoneSheet({
+    required this.appState,
+    required this.themeColor,
+    required this.accentColor,
+    required this.onSave,
+    this.template,
+  });
+
+  final AppState appState;
+  final Milestone? template;
+  final Color themeColor;
+  final Color accentColor;
+  final Function(Milestone) onSave;
+
+  @override
+  State<_AddMilestoneSheet> createState() => _AddMilestoneSheetState();
+}
+
+class _AddMilestoneSheetState extends State<_AddMilestoneSheet> {
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _picker = ImagePicker();
+  DateTime _selectedDate = DateTime.now();
+  Uint8List? _photoBytes;
+  bool _isCustom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.template == null) {
+      _isCustom = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickPhoto(ImageSource source) async {
+    try {
+      final picked = await _picker.pickImage(source: source, imageQuality: 80);
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      setState(() => _photoBytes = bytes);
+    } catch (_) {}
+  }
+
+  void _showPhotoOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.photo_camera, color: widget.accentColor),
+              title: Text(widget.appState.tr('take_photo')),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickPhoto(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.photo_library, color: widget.accentColor),
+              title: Text(widget.appState.tr('choose_gallery')),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickPhoto(ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+      locale: widget.appState.locale,
+    );
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+    }
+  }
+
+  void _save() {
+    final title = _isCustom ? _titleController.text.trim() : null;
+    if (_isCustom && title!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.appState.tr('milestone_title')),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final milestone = Milestone(
+      id: _isCustom
+          ? 'custom_${DateTime.now().millisecondsSinceEpoch}'
+          : widget.template!.id,
+      titleKey: _isCustom ? 'special_moment' : widget.template!.titleKey,
+      customTitle: _isCustom ? title : null,
+      description: _descriptionController.text.trim().isNotEmpty
+          ? _descriptionController.text.trim()
+          : null,
+      date: _selectedDate,
+      photoBase64: _photoBytes != null ? base64Encode(_photoBytes!) : null,
+      minAgeMonths: _isCustom ? 0 : widget.template!.minAgeMonths,
+      maxAgeMonths: _isCustom ? 120 : widget.template!.maxAgeMonths,
+      iconName: _isCustom ? 'star' : widget.template!.iconName,
+      category: _isCustom ? MilestoneCategory.special : widget.template!.category,
+      isCompleted: true,
+    );
+
+    widget.onSave(milestone);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = widget.template != null
+        ? widget.appState.tr(widget.template!.titleKey)
+        : widget.appState.tr('custom_milestone');
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: widget.themeColor.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    widget.template?.icon ?? Icons.star,
+                    color: widget.accentColor,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    _isCustom ? widget.appState.tr('custom_milestone') : title,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: widget.accentColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            // Foto
+            GestureDetector(
+              onTap: _showPhotoOptions,
+              child: Container(
+                height: 200,
+                decoration: BoxDecoration(
+                  color: widget.themeColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: widget.accentColor.withValues(alpha: 0.3),
+                    width: 2,
+                    style: BorderStyle.solid,
+                  ),
+                ),
+                child: _photoBytes != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: Image.memory(_photoBytes!, fit: BoxFit.cover),
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.add_a_photo,
+                            size: 48,
+                            color: widget.accentColor.withValues(alpha: 0.6),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            widget.appState.tr('add_photo'),
+                            style: TextStyle(
+                              color: widget.accentColor.withValues(alpha: 0.8),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Título personalizado
+            if (_isCustom) ...[
+              TextField(
+                controller: _titleController,
+                decoration: InputDecoration(
+                  labelText: widget.appState.tr('milestone_title'),
+                  labelStyle: TextStyle(color: widget.accentColor),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: widget.accentColor, width: 2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            // Descripción
+            TextField(
+              controller: _descriptionController,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: widget.appState.tr('milestone_description'),
+                labelStyle: TextStyle(color: widget.accentColor),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: widget.accentColor, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Fecha
+            GestureDetector(
+              onTap: _selectDate,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey[400]!),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_today, color: widget.accentColor),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.appState.tr('milestone_date'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          Text(
+                            DateFormat('dd MMMM yyyy', widget.appState.locale.languageCode)
+                                .format(_selectedDate),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: widget.accentColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.arrow_drop_down, color: widget.accentColor),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Botón guardar
+            ElevatedButton(
+              onPressed: _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: widget.accentColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: Text(
+                widget.appState.tr('save'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// MILESTONE DETAIL PAGE - Página de detalle del hito
+// ============================================================================
+class _MilestoneDetailPage extends StatelessWidget {
+  const _MilestoneDetailPage({
+    required this.milestone,
+    required this.appState,
+    required this.themeColor,
+    required this.accentColor,
+    required this.babyName,
+  });
+
+  final Milestone milestone;
+  final AppState appState;
+  final Color themeColor;
+  final Color accentColor;
+  final String babyName;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = milestone.customTitle ?? appState.tr(milestone.titleKey);
+    final dateStr = milestone.date != null
+        ? DateFormat('dd MMMM yyyy', appState.locale.languageCode).format(milestone.date!)
+        : '';
+    final hasPhoto = milestone.photoBase64 != null;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFFFFDF7),
+      body: CustomScrollView(
+        slivers: [
+          // AppBar con foto
+          SliverAppBar(
+            expandedHeight: hasPhoto ? 350 : 200,
+            pinned: true,
+            backgroundColor: themeColor,
+            leading: IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.arrow_back, color: accentColor),
+              ),
+              onPressed: () => Navigator.pop(context),
+            ),
+            flexibleSpace: FlexibleSpaceBar(
+              background: hasPhoto
+                  ? Image.memory(
+                      base64Decode(milestone.photoBase64!),
+                      fit: BoxFit.cover,
+                    )
+                  : Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [themeColor.withValues(alpha: 0.5), themeColor],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          milestone.icon,
+                          size: 100,
+                          color: accentColor.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+          // Contenido
+          SliverToBoxAdapter(
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+              ),
+              transform: Matrix4.translationValues(0, -30, 0),
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Icono y título
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: themeColor.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(milestone.icon, color: accentColor, size: 32),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                color: accentColor,
+                              ),
+                            ),
+                            if (dateStr.isNotEmpty)
+                              Text(
+                                '📅 $dateStr',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // Descripción
+                  if (milestone.description != null &&
+                      milestone.description!.isNotEmpty) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: themeColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '📝 Nota',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: accentColor,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            milestone.description!,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: Color(0xFF4F4A4A),
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                  // Footer cute
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: themeColor.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '💕 Recuerdo especial de $babyName 💕',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: accentColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
