@@ -20,6 +20,9 @@ import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
+import 'package:http/http.dart' as http;
 
 // ============================================================================
 // APP STATE - Maneja tema oscuro, idioma y estado global
@@ -204,6 +207,45 @@ class AppState extends ChangeNotifier {
       'first_pet': {'es': 'Primera mascota', 'en': 'First pet'},
       'first_trip': {'es': 'Primer viaje', 'en': 'First trip'},
       'special_moment': {'es': 'Momento especial', 'en': 'Special moment'},
+      // Camera monitor translations
+      'camera_monitor': {'es': 'Monitor de Cámara', 'en': 'Camera Monitor'},
+      'no_camera_configured': {'es': 'No hay cámara configurada', 'en': 'No camera configured'},
+      'add_camera': {'es': 'Agregar cámara', 'en': 'Add camera'},
+      'configure_camera': {'es': 'Configurar cámara', 'en': 'Configure camera'},
+      'camera_name': {'es': 'Nombre de la cámara', 'en': 'Camera name'},
+      'camera_name_hint': {'es': 'Ej: Cuarto del bebé', 'en': 'Ex: Baby room'},
+      'host_ip': {'es': 'IP o Host', 'en': 'IP or Host'},
+      'host_ip_hint': {'es': 'Ej: 192.168.1.100', 'en': 'Ex: 192.168.1.100'},
+      'rtsp_port': {'es': 'Puerto RTSP', 'en': 'RTSP Port'},
+      'rtsp_path': {'es': 'Ruta RTSP', 'en': 'RTSP Path'},
+      'rtsp_path_hint': {'es': 'Ej: /stream1 o /live/ch0', 'en': 'Ex: /stream1 or /live/ch0'},
+      'username': {'es': 'Usuario', 'en': 'Username'},
+      'password': {'es': 'Contraseña', 'en': 'Password'},
+      'test_connection': {'es': 'Probar conexión', 'en': 'Test connection'},
+      'connecting': {'es': 'Conectando...', 'en': 'Connecting...'},
+      'connected': {'es': 'Conectado', 'en': 'Connected'},
+      'disconnected': {'es': 'Desconectado', 'en': 'Disconnected'},
+      'connection_error': {'es': 'Error de conexión', 'en': 'Connection error'},
+      'connection_success': {'es': 'Conexión exitosa', 'en': 'Connection successful'},
+      'live_view': {'es': 'Vista en vivo', 'en': 'Live view'},
+      'fullscreen': {'es': 'Pantalla completa', 'en': 'Fullscreen'},
+      'snapshot': {'es': 'Capturar imagen', 'en': 'Take snapshot'},
+      'snapshot_saved': {'es': 'Imagen guardada', 'en': 'Snapshot saved'},
+      'ptz_controls': {'es': 'Controles PTZ', 'en': 'PTZ Controls'},
+      'zoom_in': {'es': 'Acercar', 'en': 'Zoom in'},
+      'zoom_out': {'es': 'Alejar', 'en': 'Zoom out'},
+      'camera_settings': {'es': 'Configuración de cámara', 'en': 'Camera settings'},
+      'delete_camera': {'es': 'Eliminar cámara', 'en': 'Delete camera'},
+      'delete_camera_confirm': {'es': '¿Eliminar esta cámara?', 'en': 'Delete this camera?'},
+      'camera_deleted': {'es': 'Cámara eliminada', 'en': 'Camera deleted'},
+      'camera_saved': {'es': 'Cámara guardada', 'en': 'Camera saved'},
+      'stream_quality': {'es': 'Calidad del stream', 'en': 'Stream quality'},
+      'high_quality': {'es': 'Alta calidad', 'en': 'High quality'},
+      'low_quality': {'es': 'Baja calidad (ahorra datos)', 'en': 'Low quality (saves data)'},
+      'audio_enabled': {'es': 'Audio habilitado', 'en': 'Audio enabled'},
+      'retry_connection': {'es': 'Reintentar conexión', 'en': 'Retry connection'},
+      'watching_baby': {'es': 'Vigilando a tu bebé', 'en': 'Watching your baby'},
+      'tap_to_configure': {'es': 'Toca para configurar tu cámara', 'en': 'Tap to configure your camera'},
     };
     return translations[key]?[isSpanish ? 'es' : 'en'] ?? key;
   }
@@ -211,6 +253,8 @@ class AppState extends ChangeNotifier {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Inicializar MediaKit para streaming RTSP
+  MediaKit.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -3563,15 +3607,1066 @@ class _FoodPageState extends State<FoodPage> {
   }
 }
 
-class CameraMonitorPage extends StatelessWidget {
+// ============================================================================
+// MODELO DE CONFIGURACIÓN DE CÁMARA
+// ============================================================================
+class CameraConfig {
+  final String id;
+  final String name;
+  final String host;
+  final int rtspPort;
+  final String rtspPath;
+  final String username;
+  final String password;
+  final int onvifPort;
+  final bool hasPTZ;
+  final bool hasAudio;
+
+  CameraConfig({
+    required this.id,
+    required this.name,
+    required this.host,
+    this.rtspPort = 554,
+    this.rtspPath = '/stream1',
+    this.username = '',
+    this.password = '',
+    this.onvifPort = 80,
+    this.hasPTZ = true,
+    this.hasAudio = true,
+  });
+
+  String get rtspUrl {
+    final auth = username.isNotEmpty ? '$username:$password@' : '';
+    return 'rtsp://$auth$host:$rtspPort$rtspPath';
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'host': host,
+    'rtspPort': rtspPort,
+    'rtspPath': rtspPath,
+    'username': username,
+    'password': password,
+    'onvifPort': onvifPort,
+    'hasPTZ': hasPTZ,
+    'hasAudio': hasAudio,
+  };
+
+  factory CameraConfig.fromJson(Map<String, dynamic> json) => CameraConfig(
+    id: json['id'],
+    name: json['name'],
+    host: json['host'],
+    rtspPort: json['rtspPort'] ?? 554,
+    rtspPath: json['rtspPath'] ?? '/stream1',
+    username: json['username'] ?? '',
+    password: json['password'] ?? '',
+    onvifPort: json['onvifPort'] ?? 80,
+    hasPTZ: json['hasPTZ'] ?? true,
+    hasAudio: json['hasAudio'] ?? true,
+  );
+}
+
+enum CameraConnectionState { disconnected, connecting, connected, error }
+
+// ============================================================================
+// CAMERA MONITOR PAGE - Página principal del monitor de cámara
+// ============================================================================
+class CameraMonitorPage extends StatefulWidget {
   const CameraMonitorPage({super.key});
 
   @override
+  State<CameraMonitorPage> createState() => _CameraMonitorPageState();
+}
+
+class _CameraMonitorPageState extends State<CameraMonitorPage> {
+  CameraConfig? _cameraConfig;
+  CameraConnectionState _connectionState = CameraConnectionState.disconnected;
+  String _errorMessage = '';
+  bool _isLoading = true;
+  bool _isFullscreen = false;
+  bool _showControls = true;
+  
+  // Media Kit
+  Player? _player;
+  VideoController? _videoController;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCameraConfig();
+  }
+
+  @override
+  void dispose() {
+    _player?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadCameraConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final configJson = prefs.getString('camera_config');
+    
+    if (configJson != null) {
+      try {
+        final config = CameraConfig.fromJson(jsonDecode(configJson));
+        setState(() {
+          _cameraConfig = config;
+          _isLoading = false;
+        });
+        // Auto-conectar si hay configuración guardada
+        _connectToCamera();
+      } catch (e) {
+        setState(() => _isLoading = false);
+      }
+    } else {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveCameraConfig(CameraConfig config) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('camera_config', jsonEncode(config.toJson()));
+    setState(() => _cameraConfig = config);
+  }
+
+  Future<void> _deleteCameraConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('camera_config');
+    _disconnectCamera();
+    setState(() => _cameraConfig = null);
+  }
+
+  Future<void> _connectToCamera() async {
+    if (_cameraConfig == null) return;
+
+    setState(() {
+      _connectionState = CameraConnectionState.connecting;
+      _errorMessage = '';
+    });
+
+    try {
+      // Crear player y controller
+      _player?.dispose();
+      _player = Player();
+      _videoController = VideoController(_player!);
+
+      // Configurar opciones para RTSP
+      await _player!.open(
+        Media(_cameraConfig!.rtspUrl),
+        play: true,
+      );
+
+      // Escuchar errores
+      _player!.stream.error.listen((error) {
+        if (mounted) {
+          setState(() {
+            _connectionState = CameraConnectionState.error;
+            _errorMessage = error;
+          });
+        }
+      });
+
+      // Escuchar cuando empiece a reproducir
+      _player!.stream.playing.listen((playing) {
+        if (mounted && playing) {
+          setState(() => _connectionState = CameraConnectionState.connected);
+        }
+      });
+
+      // Timeout de conexión
+      Future.delayed(const Duration(seconds: 15), () {
+        if (mounted && _connectionState == CameraConnectionState.connecting) {
+          setState(() {
+            _connectionState = CameraConnectionState.error;
+            _errorMessage = 'Tiempo de espera agotado';
+          });
+        }
+      });
+
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _connectionState = CameraConnectionState.error;
+          _errorMessage = e.toString();
+        });
+      }
+    }
+  }
+
+  void _disconnectCamera() {
+    _player?.stop();
+    _player?.dispose();
+    _player = null;
+    _videoController = null;
+    if (mounted) {
+      setState(() => _connectionState = CameraConnectionState.disconnected);
+    }
+  }
+
+  void _showConfigSheet(BuildContext context) {
+    final appState = Provider.of<AppState>(context, listen: false);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _CameraConfigSheet(
+        appState: appState,
+        existingConfig: _cameraConfig,
+        onSave: (config) async {
+          Navigator.pop(ctx);
+          await _saveCameraConfig(config);
+          _connectToCamera();
+        },
+        onDelete: _cameraConfig != null ? () async {
+          Navigator.pop(ctx);
+          await _deleteCameraConfig();
+        } : null,
+      ),
+    );
+  }
+
+  Future<void> _takeSnapshot() async {
+    if (_player == null || _connectionState != CameraConnectionState.connected) return;
+    
+    try {
+      // Capturar screenshot del video
+      final directory = await getApplicationDocumentsDirectory();
+      final fileName = 'snapshot_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final path = '${directory.path}/$fileName';
+      
+      // media_kit screenshot retorna Uint8List?
+      final screenshot = await _player!.screenshot();
+      
+      if (screenshot != null) {
+        final file = File(path);
+        await file.writeAsBytes(screenshot);
+        
+        if (mounted) {
+          final appState = Provider.of<AppState>(context, listen: false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(appState.tr('snapshot_saved')),
+              backgroundColor: const Color(0xFF4F7A4A),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error taking snapshot: $e');
+    }
+  }
+
+  // Enviar comando PTZ via ONVIF
+  Future<void> _sendPTZCommand(String direction) async {
+    if (_cameraConfig == null) return;
+    
+    // Valores de movimiento
+    double x = 0, y = 0, zoom = 0;
+    switch (direction) {
+      case 'left': x = -0.5; break;
+      case 'right': x = 0.5; break;
+      case 'up': y = 0.5; break;
+      case 'down': y = -0.5; break;
+      case 'zoom_in': zoom = 0.5; break;
+      case 'zoom_out': zoom = -0.5; break;
+    }
+
+    // SOAP request para ONVIF PTZ
+    final soapBody = '''
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:tptz="http://www.onvif.org/ver20/ptz/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">
+  <soap:Body>
+    <tptz:ContinuousMove>
+      <tptz:ProfileToken>Profile_1</tptz:ProfileToken>
+      <tptz:Velocity>
+        <tt:PanTilt x="$x" y="$y"/>
+        <tt:Zoom x="$zoom"/>
+      </tptz:Velocity>
+    </tptz:ContinuousMove>
+  </soap:Body>
+</soap:Envelope>
+''';
+
+    try {
+      final url = 'http://${_cameraConfig!.host}:${_cameraConfig!.onvifPort}/onvif/ptz_service';
+      await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/soap+xml; charset=utf-8',
+        },
+        body: soapBody,
+      );
+    } catch (e) {
+      debugPrint('PTZ command error: $e');
+    }
+  }
+
+  Future<void> _stopPTZ() async {
+    if (_cameraConfig == null) return;
+
+    final soapBody = '''
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:tptz="http://www.onvif.org/ver20/ptz/wsdl">
+  <soap:Body>
+    <tptz:Stop>
+      <tptz:ProfileToken>Profile_1</tptz:ProfileToken>
+      <tptz:PanTilt>true</tptz:PanTilt>
+      <tptz:Zoom>true</tptz:Zoom>
+    </tptz:Stop>
+  </soap:Body>
+</soap:Envelope>
+''';
+
+    try {
+      final url = 'http://${_cameraConfig!.host}:${_cameraConfig!.onvifPort}/onvif/ptz_service';
+      await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/soap+xml; charset=utf-8'},
+        body: soapBody,
+      );
+    } catch (e) {
+      debugPrint('PTZ stop error: $e');
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return _SimpleSectionScaffold(
-      title: 'Monitor cámara',
-      description: 'En el futuro aquí se integrará la cámara para monitorear a tu bebé.',
-      icon: Icons.videocam,
+    final appState = Provider.of<AppState>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: isDark ? const Color(0xFF1A1A2E) : const Color(0xFFF5FFF3),
+        body: const Center(
+          child: CircularProgressIndicator(color: Color(0xFFB6D7A8)),
+        ),
+      );
+    }
+
+    // Si no hay cámara configurada, mostrar pantalla de configuración
+    if (_cameraConfig == null) {
+      return _buildNoCameraView(context, appState, isDark);
+    }
+
+    // Vista de monitoreo
+    return _isFullscreen
+        ? _buildFullscreenView(context, appState)
+        : _buildNormalView(context, appState, isDark);
+  }
+
+  Widget _buildNoCameraView(BuildContext context, AppState appState, bool isDark) {
+    return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF1A1A2E) : const Color(0xFFF5FFF3),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFB6D7A8),
+        title: Text(appState.tr('camera_monitor')),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB6D7A8).withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.videocam_off,
+                  size: 80,
+                  color: Color(0xFF4F7A4A),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                appState.tr('no_camera_configured'),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white70 : const Color(0xFF4F4A4A),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                appState.tr('tap_to_configure'),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.white54 : const Color(0xFF9E9E9E),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: () => _showConfigSheet(context),
+                icon: const Icon(Icons.add),
+                label: Text(appState.tr('add_camera')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4F7A4A),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNormalView(BuildContext context, AppState appState, bool isDark) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black87,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Row(
+          children: [
+            _buildConnectionIndicator(),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _cameraConfig!.name,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.white),
+            onPressed: () => _showConfigSheet(context),
+          ),
+        ],
+      ),
+      body: GestureDetector(
+        onTap: () => setState(() => _showControls = !_showControls),
+        child: Stack(
+          children: [
+            // Video
+            Center(
+              child: _buildVideoWidget(),
+            ),
+            // Controles superpuestos
+            if (_showControls) ...[
+              // Botón pantalla completa
+              Positioned(
+                top: 16,
+                right: 16,
+                child: IconButton(
+                  onPressed: () => setState(() => _isFullscreen = true),
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.fullscreen, color: Colors.white),
+                  ),
+                ),
+              ),
+              // Barra inferior de controles
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [Colors.black87, Colors.transparent],
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Snapshot
+                      _buildControlButton(
+                        Icons.camera_alt,
+                        appState.tr('snapshot'),
+                        _takeSnapshot,
+                      ),
+                      // Reconectar
+                      if (_connectionState != CameraConnectionState.connected)
+                        _buildControlButton(
+                          Icons.refresh,
+                          appState.tr('retry_connection'),
+                          _connectToCamera,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            // Controles PTZ (si la cámara los soporta)
+            if (_showControls && _cameraConfig!.hasPTZ && _connectionState == CameraConnectionState.connected)
+              Positioned(
+                right: 16,
+                bottom: 100,
+                child: _buildPTZControls(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFullscreenView(BuildContext context, AppState appState) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        onTap: () => setState(() => _showControls = !_showControls),
+        child: Stack(
+          children: [
+            Center(
+              child: _buildVideoWidget(),
+            ),
+            if (_showControls)
+              Positioned(
+                top: 40,
+                left: 16,
+                child: IconButton(
+                  onPressed: () => setState(() => _isFullscreen = false),
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.fullscreen_exit, color: Colors.white),
+                  ),
+                ),
+              ),
+            if (_showControls && _cameraConfig!.hasPTZ)
+              Positioned(
+                right: 16,
+                bottom: 40,
+                child: _buildPTZControls(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoWidget() {
+    switch (_connectionState) {
+      case CameraConnectionState.disconnected:
+        return _buildStatusWidget(
+          Icons.videocam_off,
+          'Desconectado',
+          Colors.grey,
+        );
+      case CameraConnectionState.connecting:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Color(0xFFB6D7A8)),
+            const SizedBox(height: 16),
+            Text(
+              Provider.of<AppState>(context).tr('connecting'),
+              style: const TextStyle(color: Colors.white70),
+            ),
+          ],
+        );
+      case CameraConnectionState.error:
+        return _buildStatusWidget(
+          Icons.error_outline,
+          _errorMessage.isNotEmpty ? _errorMessage : 'Error de conexión',
+          Colors.redAccent,
+        );
+      case CameraConnectionState.connected:
+        if (_videoController != null) {
+          return Video(
+            controller: _videoController!,
+            fit: BoxFit.contain,
+          );
+        }
+        return const SizedBox();
+    }
+  }
+
+  Widget _buildStatusWidget(IconData icon, String message, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 64, color: color),
+        const SizedBox(height: 16),
+        Text(
+          message,
+          style: TextStyle(color: color, fontSize: 16),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConnectionIndicator() {
+    Color color;
+    switch (_connectionState) {
+      case CameraConnectionState.connected:
+        color = Colors.green;
+        break;
+      case CameraConnectionState.connecting:
+        color = Colors.orange;
+        break;
+      case CameraConnectionState.error:
+        color = Colors.red;
+        break;
+      default:
+        color = Colors.grey;
+    }
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.5),
+            blurRadius: 4,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlButton(IconData icon, String label, VoidCallback onPressed) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          onPressed: onPressed,
+          icon: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: Colors.white, size: 24),
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 10),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPTZControls() {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Arriba
+          _buildPTZButton(Icons.keyboard_arrow_up, 'up'),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildPTZButton(Icons.keyboard_arrow_left, 'left'),
+              const SizedBox(width: 32),
+              _buildPTZButton(Icons.keyboard_arrow_right, 'right'),
+            ],
+          ),
+          // Abajo
+          _buildPTZButton(Icons.keyboard_arrow_down, 'down'),
+          const SizedBox(height: 8),
+          // Zoom
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildPTZButton(Icons.remove, 'zoom_out'),
+              const SizedBox(width: 8),
+              _buildPTZButton(Icons.add, 'zoom_in'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPTZButton(IconData icon, String direction) {
+    return GestureDetector(
+      onTapDown: (_) => _sendPTZCommand(direction),
+      onTapUp: (_) => _stopPTZ(),
+      onTapCancel: () => _stopPTZ(),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white24,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, color: Colors.white, size: 24),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// CAMERA CONFIG SHEET - Formulario de configuración de cámara
+// ============================================================================
+class _CameraConfigSheet extends StatefulWidget {
+  const _CameraConfigSheet({
+    required this.appState,
+    required this.onSave,
+    this.existingConfig,
+    this.onDelete,
+  });
+
+  final AppState appState;
+  final CameraConfig? existingConfig;
+  final Function(CameraConfig) onSave;
+  final VoidCallback? onDelete;
+
+  @override
+  State<_CameraConfigSheet> createState() => _CameraConfigSheetState();
+}
+
+class _CameraConfigSheetState extends State<_CameraConfigSheet> {
+  final _nameController = TextEditingController();
+  final _hostController = TextEditingController();
+  final _portController = TextEditingController();
+  final _pathController = TextEditingController();
+  final _userController = TextEditingController();
+  final _passController = TextEditingController();
+  bool _showPassword = false;
+  bool _hasPTZ = true;
+  bool _hasAudio = true;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existingConfig != null) {
+      final c = widget.existingConfig!;
+      _nameController.text = c.name;
+      _hostController.text = c.host;
+      _portController.text = c.rtspPort.toString();
+      _pathController.text = c.rtspPath;
+      _userController.text = c.username;
+      _passController.text = c.password;
+      _hasPTZ = c.hasPTZ;
+      _hasAudio = c.hasAudio;
+    } else {
+      _portController.text = '554';
+      _pathController.text = '/stream1';
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _hostController.dispose();
+    _portController.dispose();
+    _pathController.dispose();
+    _userController.dispose();
+    _passController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (_nameController.text.isEmpty || _hostController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nombre e IP son requeridos'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final config = CameraConfig(
+      id: widget.existingConfig?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      name: _nameController.text.trim(),
+      host: _hostController.text.trim(),
+      rtspPort: int.tryParse(_portController.text) ?? 554,
+      rtspPath: _pathController.text.trim().isEmpty ? '/stream1' : _pathController.text.trim(),
+      username: _userController.text.trim(),
+      password: _passController.text,
+      hasPTZ: _hasPTZ,
+      hasAudio: _hasAudio,
+    );
+
+    widget.onSave(config);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tr = widget.appState.tr;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Título
+            Row(
+              children: [
+                const Icon(Icons.videocam, color: Color(0xFF4F7A4A), size: 28),
+                const SizedBox(width: 12),
+                Text(
+                  tr('configure_camera'),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF4F4A4A),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            // Nombre
+            _buildTextField(
+              controller: _nameController,
+              label: tr('camera_name'),
+              hint: tr('camera_name_hint'),
+              icon: Icons.label,
+            ),
+            const SizedBox(height: 16),
+            // IP
+            _buildTextField(
+              controller: _hostController,
+              label: tr('host_ip'),
+              hint: tr('host_ip_hint'),
+              icon: Icons.router,
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 16),
+            // Puerto y Ruta
+            Row(
+              children: [
+                Expanded(
+                  flex: 1,
+                  child: _buildTextField(
+                    controller: _portController,
+                    label: tr('rtsp_port'),
+                    hint: '554',
+                    icon: Icons.numbers,
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: _buildTextField(
+                    controller: _pathController,
+                    label: tr('rtsp_path'),
+                    hint: tr('rtsp_path_hint'),
+                    icon: Icons.link,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Usuario
+            _buildTextField(
+              controller: _userController,
+              label: tr('username'),
+              hint: 'admin',
+              icon: Icons.person,
+            ),
+            const SizedBox(height: 16),
+            // Contraseña
+            _buildTextField(
+              controller: _passController,
+              label: tr('password'),
+              hint: '••••••',
+              icon: Icons.lock,
+              obscure: !_showPassword,
+              suffix: IconButton(
+                icon: Icon(_showPassword ? Icons.visibility_off : Icons.visibility),
+                onPressed: () => setState(() => _showPassword = !_showPassword),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Opciones
+            SwitchListTile(
+              value: _hasPTZ,
+              onChanged: (v) => setState(() => _hasPTZ = v),
+              title: Text(tr('ptz_controls')),
+              subtitle: const Text('Pan/Tilt/Zoom'),
+              activeColor: const Color(0xFF4F7A4A),
+            ),
+            SwitchListTile(
+              value: _hasAudio,
+              onChanged: (v) => setState(() => _hasAudio = v),
+              title: Text(tr('audio_enabled')),
+              activeColor: const Color(0xFF4F7A4A),
+            ),
+            const SizedBox(height: 16),
+            // URL Preview
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'URL RTSP:',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _buildPreviewUrl(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      color: Color(0xFF4F7A4A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Botones
+            Row(
+              children: [
+                if (widget.onDelete != null)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: Text(tr('delete_camera')),
+                            content: Text(tr('delete_camera_confirm')),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: Text(tr('cancel')),
+                              ),
+                              ElevatedButton(
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  widget.onDelete!();
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.redAccent,
+                                ),
+                                child: Text(tr('delete')),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.delete, color: Colors.redAccent),
+                      label: Text(tr('delete'), style: const TextStyle(color: Colors.redAccent)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                if (widget.onDelete != null) const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _save,
+                    icon: const Icon(Icons.save),
+                    label: Text(tr('save')),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4F7A4A),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _buildPreviewUrl() {
+    final host = _hostController.text.isEmpty ? 'IP' : _hostController.text;
+    final port = _portController.text.isEmpty ? '554' : _portController.text;
+    final path = _pathController.text.isEmpty ? '/stream1' : _pathController.text;
+    final user = _userController.text;
+    final pass = _passController.text;
+    final auth = user.isNotEmpty ? '$user:***@' : '';
+    return 'rtsp://$auth$host:$port$path';
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+    bool obscure = false,
+    Widget? suffix,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      obscureText: obscure,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon, color: const Color(0xFF4F7A4A)),
+        suffixIcon: suffix,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF4F7A4A), width: 2),
+        ),
+      ),
+      onChanged: (_) => setState(() {}),
     );
   }
 }

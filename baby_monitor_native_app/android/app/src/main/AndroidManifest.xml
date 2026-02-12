@@ -7,7 +7,7 @@
     <uses-feature android:name="android.hardware.camera.front" android:required="true" />
 
     <application
-        android:label="baby_monitor_native_app"
+        android:label="KOA"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
