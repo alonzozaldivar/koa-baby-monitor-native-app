@@ -7,6 +7,7 @@ class StorageService {
   static const String _feedingEntriesKey = 'feeding_entries';
   static const String _appointmentsKey = 'medical_appointments';
   static const String _medicinesKey = 'medicine_reminders';
+  static const String _healthMeasurementsKey = 'health_measurements';
 
   // ========== FEEDING ENTRIES ==========
 
@@ -99,6 +100,37 @@ class StorageService {
   static Future<void> clearMedicines() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_medicinesKey);
+  }
+
+  // ========== HEALTH MEASUREMENTS ==========
+
+  /// Guarda todas las mediciones de salud (peso y talla)
+  static Future<void> saveHealthMeasurements(List<HealthMeasurement> measurements) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = measurements.map((m) => m.toJson()).toList();
+    await prefs.setString(_healthMeasurementsKey, jsonEncode(jsonList));
+  }
+
+  /// Carga todas las mediciones de salud guardadas
+  static Future<List<HealthMeasurement>> loadHealthMeasurements() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_healthMeasurementsKey);
+    if (jsonString == null || jsonString.isEmpty) {
+      return [];
+    }
+    try {
+      final jsonList = jsonDecode(jsonString) as List;
+      return jsonList.map((json) => HealthMeasurement.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error cargando mediciones de salud: $e');
+      return [];
+    }
+  }
+
+  /// Elimina todas las mediciones de salud
+  static Future<void> clearHealthMeasurements() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_healthMeasurementsKey);
   }
 }
 
@@ -220,6 +252,38 @@ class MedicineReminder {
       }).toList(),
       notes: json['notes'] as String?,
       notificationIds: (json['notificationIds'] as List?)?.cast<int>() ?? [],
+    );
+  }
+}
+
+class HealthMeasurement {
+  HealthMeasurement({
+    required this.date,
+    required this.weight,
+    required this.height,
+    required this.ageInMonths,
+  });
+
+  final DateTime date;
+  final double weight; // en kilogramos
+  final double height; // en centímetros
+  final int ageInMonths; // edad al momento de la medición
+
+  Map<String, dynamic> toJson() {
+    return {
+      'date': date.toIso8601String(),
+      'weight': weight,
+      'height': height,
+      'ageInMonths': ageInMonths,
+    };
+  }
+
+  factory HealthMeasurement.fromJson(Map<String, dynamic> json) {
+    return HealthMeasurement(
+      date: DateTime.parse(json['date'] as String),
+      weight: (json['weight'] as num).toDouble(),
+      height: (json['height'] as num).toDouble(),
+      ageInMonths: json['ageInMonths'] as int,
     );
   }
 }
