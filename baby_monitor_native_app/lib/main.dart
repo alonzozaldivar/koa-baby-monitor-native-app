@@ -24,6 +24,10 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:http/http.dart' as http;
 
+// Servicios personalizados
+import 'services/storage_service.dart';
+import 'services/notification_service.dart';
+
 // ============================================================================
 // APP STATE - Maneja tema oscuro, idioma y estado global
 // ============================================================================
@@ -253,8 +257,16 @@ class AppState extends ChangeNotifier {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
   // Inicializar MediaKit para streaming RTSP
   MediaKit.ensureInitialized();
+  
+  // Inicializar servicio de notificaciones
+  await NotificationService.initialize();
+  await NotificationService.requestPermissions();
+  
+  debugPrint('✅ Todos los servicios inicializados');
+  
   runApp(const MyApp());
 }
 
@@ -3058,59 +3070,12 @@ class KoaFeatureCard extends StatelessWidget {
   }
 }
 
-class FeedingEntry {
-  FeedingEntry({
-    required this.time,
-    required this.amount,
-    required this.type,
-    this.notes,
-  });
-
-  final DateTime time;
-  final double amount;
-  final String type;
-  final String? notes;
-}
-
 // Enumeración de etapas de alimentación
 enum FeedingStage {
   exclusiveLactation, // 0-6 meses
   complementary,      // 6-12 meses
   transition,         // 12-24 meses
   familyFood,         // 24+ meses
-}
-
-// Modelos para la sección de Salud
-class MedicalAppointment {
-  MedicalAppointment({
-    required this.type,
-    required this.date,
-    required this.time,
-    this.notes,
-    this.completed = false,
-  });
-
-  final String type; // 'Vacuna' o 'Cita médica'
-  final DateTime date;
-  final TimeOfDay time;
-  final String? notes;
-  bool completed;
-}
-
-class MedicineReminder {
-  MedicineReminder({
-    required this.name,
-    required this.dosage,
-    required this.frequency,
-    required this.times,
-    this.notes,
-  });
-
-  final String name;
-  final String dosage;
-  final int frequency; // veces al día
-  final List<TimeOfDay> times;
-  final String? notes;
 }
 
 class FoodPage extends StatefulWidget {
@@ -3138,6 +3103,19 @@ class _FoodPageState extends State<FoodPage> {
   void initState() {
     super.initState();
     _loadBabyData();
+    _loadFeedingEntries();
+  }
+
+  Future<void> _loadFeedingEntries() async {
+    final entries = await StorageService.loadFeedingEntries();
+    if (mounted) {
+      setState(() {
+        _entries.clear();
+        _entries.addAll(entries);
+        _entries.sort((a, b) => a.time.compareTo(b.time));
+      });
+    }
+    debugPrint('✅ Cargadas ${entries.length} entradas de alimentación');
   }
 
   Future<void> _loadBabyData() async {
@@ -3265,7 +3243,7 @@ class _FoodPageState extends State<FoodPage> {
     }
   }
 
-  void _addFeeding() {
+  Future<void> _addFeeding() async {
     if (_feedingType == null) return;
     
     final amountText = _amountController.text.trim();
@@ -3308,11 +3286,22 @@ class _FoodPageState extends State<FoodPage> {
       _selectedTime = TimeOfDay.now();
     });
 
+    // Guardar en almacenamiento persistente
+    await StorageService.saveFeedingEntries(_entries);
+    debugPrint('✅ Entrada de alimentación guardada');
+
     final next = _nextFeedingTime;
     if (next != null) {
+      // Programar notificación para próxima toma
+      await NotificationService.scheduleNextFeedingNotification(
+        nextFeedingTime: next,
+        babyName: _babyName,
+      );
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Toma registrada. Próxima toma sugerida a las ${_formatTime(next)}.'),
+          content: Text('Toma registrada. Próxima toma sugerida a las ${_formatTime(next)}. 🔔 Notificación programada.'),
+          duration: const Duration(seconds: 3),
         ),
       );
     }
