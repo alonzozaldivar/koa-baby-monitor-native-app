@@ -4746,6 +4746,30 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadPediatricianData();
+    _loadAppointments();
+    _loadMedicines();
+  }
+
+  Future<void> _loadAppointments() async {
+    final appointments = await StorageService.loadAppointments();
+    if (mounted) {
+      setState(() {
+        _appointments.clear();
+        _appointments.addAll(appointments);
+      });
+    }
+    debugPrint('✅ Cargadas ${appointments.length} citas médicas');
+  }
+
+  Future<void> _loadMedicines() async {
+    final medicines = await StorageService.loadMedicines();
+    if (mounted) {
+      setState(() {
+        _medicines.clear();
+        _medicines.addAll(medicines);
+      });
+    }
+    debugPrint('✅ Cargados ${medicines.length} medicamentos');
   }
 
   @override
@@ -4930,10 +4954,16 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
           ),
           IconButton(
             icon: const Icon(Icons.check_circle_outline, color: Color(0xFF4F7A4A)),
-            onPressed: () {
+            onPressed: () async {
               setState(() {
                 apt.completed = true;
               });
+              // Guardar cambios
+              await StorageService.saveAppointments(_appointments);
+              // Cancelar notificación si existe
+              if (apt.notificationId != null) {
+                await NotificationService.cancelNotification(apt.notificationId!);
+              }
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Cita marcada como completada')),
               );
@@ -5023,8 +5053,18 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               if (type != null && selectedDate != null && selectedTime != null) {
+                // Programar notificación y obtener ID
+                final notificationId = await NotificationService.scheduleAppointmentNotification(
+                  type: type!,
+                  date: selectedDate!,
+                  time: selectedTime!,
+                  notes: notesController.text.trim().isEmpty
+                      ? null
+                      : notesController.text.trim(),
+                );
+
                 setState(() {
                   _appointments.add(MedicalAppointment(
                     type: type!,
@@ -5033,11 +5073,20 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                     notes: notesController.text.trim().isEmpty
                         ? null
                         : notesController.text.trim(),
+                    notificationId: notificationId,
                   ));
                 });
+
+                // Guardar en almacenamiento persistente
+                await StorageService.saveAppointments(_appointments);
+                debugPrint('✅ Cita guardada con notificación ID: $notificationId');
+
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Cita agregada')),
+                  const SnackBar(
+                    content: Text('Cita agregada 🔔 Notificación programada'),
+                    duration: Duration(seconds: 3),
+                  ),
                 );
               }
             },
@@ -5152,8 +5201,14 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
               ),
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.red),
-                onPressed: () {
+                onPressed: () async {
+                  // Cancelar notificaciones
+                  if (med.notificationIds.isNotEmpty) {
+                    await NotificationService.cancelNotifications(med.notificationIds);
+                  }
                   setState(() => _medicines.remove(med));
+                  // Guardar cambios
+                  await StorageService.saveMedicines(_medicines);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Medicamento eliminado')),
                   );
@@ -5307,9 +5362,16 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               if (nameController.text.trim().isNotEmpty &&
                   dosageController.text.trim().isNotEmpty) {
+                // Programar notificaciones recurrentes
+                final notificationIds = await NotificationService.scheduleMedicineNotifications(
+                  medicineName: nameController.text.trim(),
+                  dosage: dosageController.text.trim(),
+                  times: times,
+                );
+
                 setState(() {
                   _medicines.add(MedicineReminder(
                     name: nameController.text.trim(),
@@ -5319,11 +5381,20 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                     notes: notesController.text.trim().isEmpty
                         ? null
                         : notesController.text.trim(),
+                    notificationIds: notificationIds,
                   ));
                 });
+
+                // Guardar en almacenamiento persistente
+                await StorageService.saveMedicines(_medicines);
+                debugPrint('✅ Medicamento guardado con ${notificationIds.length} notificaciones');
+
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Medicamento agregado')),
+                  SnackBar(
+                    content: Text('Medicamento agregado 🔔 ${notificationIds.length} recordatorios programados'),
+                    duration: const Duration(seconds: 3),
+                  ),
                 );
               }
             },
