@@ -8,6 +8,8 @@ class StorageService {
   static const String _appointmentsKey = 'medical_appointments';
   static const String _medicinesKey = 'medicine_reminders';
   static const String _healthMeasurementsKey = 'health_measurements';
+  static const String _vaccinesKey = 'vaccine_records';
+  static const String _sleepSessionsKey = 'sleep_sessions';
 
   // ========== FEEDING ENTRIES ==========
 
@@ -131,6 +133,68 @@ class StorageService {
   static Future<void> clearHealthMeasurements() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_healthMeasurementsKey);
+  }
+
+  // ========== VACCINE RECORDS ==========
+
+  /// Guarda todos los registros de vacunas
+  static Future<void> saveVaccines(List<VaccineRecord> vaccines) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = vaccines.map((v) => v.toJson()).toList();
+    await prefs.setString(_vaccinesKey, jsonEncode(jsonList));
+  }
+
+  /// Carga todos los registros de vacunas guardados
+  static Future<List<VaccineRecord>> loadVaccines() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_vaccinesKey);
+    if (jsonString == null || jsonString.isEmpty) {
+      return [];
+    }
+    try {
+      final jsonList = jsonDecode(jsonString) as List;
+      return jsonList.map((json) => VaccineRecord.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error cargando vacunas: $e');
+      return [];
+    }
+  }
+
+  /// Elimina todos los registros de vacunas
+  static Future<void> clearVaccines() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_vaccinesKey);
+  }
+
+  // ========== SLEEP SESSIONS ==========
+
+  /// Guarda todas las sesiones de sueño
+  static Future<void> saveSleepSessions(List<SleepSession> sessions) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = sessions.map((s) => s.toJson()).toList();
+    await prefs.setString(_sleepSessionsKey, jsonEncode(jsonList));
+  }
+
+  /// Carga todas las sesiones de sueño guardadas
+  static Future<List<SleepSession>> loadSleepSessions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_sleepSessionsKey);
+    if (jsonString == null || jsonString.isEmpty) {
+      return [];
+    }
+    try {
+      final jsonList = jsonDecode(jsonString) as List;
+      return jsonList.map((json) => SleepSession.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('Error cargando sesiones de sueño: $e');
+      return [];
+    }
+  }
+
+  /// Elimina todas las sesiones de sueño
+  static Future<void> clearSleepSessions() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_sleepSessionsKey);
   }
 }
 
@@ -284,6 +348,96 @@ class HealthMeasurement {
       weight: (json['weight'] as num).toDouble(),
       height: (json['height'] as num).toDouble(),
       ageInMonths: json['ageInMonths'] as int,
+    );
+  }
+}
+
+class VaccineRecord {
+  VaccineRecord({
+    required this.vaccineId,
+    required this.name,
+    required this.ageInMonths,
+    this.appliedDate,
+    this.notes,
+  });
+
+  final String vaccineId; // ID único de la vacuna
+  final String name; // Nombre de la vacuna
+  final int ageInMonths; // Edad recomendada en meses
+  DateTime? appliedDate; // Fecha en que se aplicó (null si no se ha aplicado)
+  String? notes;
+
+  bool get isApplied => appliedDate != null;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'vaccineId': vaccineId,
+      'name': name,
+      'ageInMonths': ageInMonths,
+      'appliedDate': appliedDate?.toIso8601String(),
+      'notes': notes,
+    };
+  }
+
+  factory VaccineRecord.fromJson(Map<String, dynamic> json) {
+    return VaccineRecord(
+      vaccineId: json['vaccineId'] as String,
+      name: json['name'] as String,
+      ageInMonths: json['ageInMonths'] as int,
+      appliedDate: json['appliedDate'] != null 
+          ? DateTime.parse(json['appliedDate'] as String)
+          : null,
+      notes: json['notes'] as String?,
+    );
+  }
+}
+
+class SleepSession {
+  SleepSession({
+    required this.startTime,
+    this.endTime,
+    this.notes,
+  });
+
+  final DateTime startTime;
+  DateTime? endTime;
+  String? notes;
+
+  /// Duración de la sesión en minutos
+  int? get durationInMinutes {
+    if (endTime == null) return null;
+    return endTime!.difference(startTime).inMinutes;
+  }
+
+  /// Duración formateada como "Xh Ym"
+  String get durationFormatted {
+    final duration = durationInMinutes;
+    if (duration == null) return 'En curso...';
+    final hours = duration ~/ 60;
+    final minutes = duration % 60;
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    }
+    return '${minutes}m';
+  }
+
+  bool get isOngoing => endTime == null;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'startTime': startTime.toIso8601String(),
+      'endTime': endTime?.toIso8601String(),
+      'notes': notes,
+    };
+  }
+
+  factory SleepSession.fromJson(Map<String, dynamic> json) {
+    return SleepSession(
+      startTime: DateTime.parse(json['startTime'] as String),
+      endTime: json['endTime'] != null 
+          ? DateTime.parse(json['endTime'] as String)
+          : null,
+      notes: json['notes'] as String?,
     );
   }
 }

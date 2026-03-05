@@ -23,10 +23,23 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:http/http.dart' as http;
+import 'package:fl_chart/fl_chart.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+// Configuración
+import 'config/supabase_config.dart';
+import 'config/supabase_client.dart';
 
 // Servicios personalizados
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
+
+// Pantallas de autenticación
+import 'screens/welcome_screen.dart';
+
+// Datos de referencia OMS
+import 'data/who_standards.dart';
+import 'data/vaccine_schedule.dart';
 
 // ============================================================================
 // APP STATE - Maneja tema oscuro, idioma y estado global
@@ -96,20 +109,27 @@ class AppState extends ChangeNotifier {
       'food': {'es': 'Comida', 'en': 'Food'},
       'food_desc': {'es': 'Registro de tomas, horarios y notas sobre la alimentación.', 'en': 'Feeding logs, schedules and nutrition notes.'},
       'camera': {'es': 'Monitor cámara', 'en': 'Camera monitor'},
-      'camera_desc': {'es': 'Acceso al monitoreo visual de tu bebé.', 'en': 'Access visual monitoring of your baby.'},
+      'camera_desc': {'es': 'Monitoreo visual en tiempo real.', 'en': 'Real-time visual monitoring.'},
       'health': {'es': 'Salud', 'en': 'Health'},
       'health_desc': {'es': 'Vacunas, peso, citas médicas y más.', 'en': 'Vaccines, weight, medical appointments and more.'},
       'diary': {'es': 'Diario de recuerdos', 'en': 'Memory diary'},
-      'diary_desc': {'es': 'Momentos especiales y hitos de tu bebé.', 'en': 'Special moments and milestones.'},
+      'diary_desc': {'es': 'Hitos y momentos especiales.', 'en': 'Special moments and milestones.'},
+      'sleep': {'es': 'Sueño', 'en': 'Sleep'},
+      'sleep_desc': {'es': 'Registro y seguimiento de las horas de sueño.', 'en': 'Sleep tracking and monitoring.'},
       'activity_log': {'es': 'Registro de actividades', 'en': 'Activity log'},
       'no_activities': {'es': 'Aún no hay actividades registradas.', 'en': 'No activities recorded yet.'},
       'statistics': {'es': 'Estadísticas', 'en': 'Statistics'},
       'coming_soon': {'es': 'Próximamente', 'en': 'Coming soon'},
       'stats_desc': {'es': 'Aquí podrás ver gráficas y resúmenes de las actividades de tu bebé.', 'en': 'Here you will see charts and summaries of your baby\'s activities.'},
       'skip': {'es': 'Saltar', 'en': 'Skip'},
+      'year': {'es': 'año', 'en': 'year'},
+      'years': {'es': 'años', 'en': 'years'},
       'months': {'es': 'meses', 'en': 'months'},
+      'month': {'es': 'mes', 'en': 'month'},
       'days': {'es': 'días', 'en': 'days'},
+      'day': {'es': 'día', 'en': 'day'},
       'old': {'es': 'de edad', 'en': 'old'},
+      'and': {'es': 'y', 'en': 'and'},
       // Facial auth translations
       'face_auth': {'es': 'Autenticación Facial', 'en': 'Facial Authentication'},
       'position_face': {'es': 'Posiciona tu rostro en el óvalo', 'en': 'Position your face in the oval'},
@@ -258,6 +278,13 @@ class AppState extends ChangeNotifier {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  // Inicializar Supabase
+  await Supabase.initialize(
+    url: SupabaseConfig.supabaseUrl,
+    anonKey: SupabaseConfig.supabaseAnonKey,
+  );
+  debugPrint('✅ Supabase inicializado');
+  
   // Inicializar MediaKit para streaming RTSP
   MediaKit.ensureInitialized();
   
@@ -295,9 +322,7 @@ class MyApp extends StatelessWidget {
             theme: _buildLightTheme(),
             darkTheme: _buildDarkTheme(),
             themeMode: appState.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-            home: kIsWeb
-                ? const ProfileSelectionPage()
-                : const IntroVideoPage(),
+            home: const InitialScreen(),
           );
         },
       ),
@@ -349,6 +374,107 @@ class MyApp extends StatelessWidget {
         bodyMedium: TextStyle(
           fontSize: 16,
           color: Color(0xFFCFE8C9),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// INITIAL SCREEN - Determina qué pantalla mostrar al iniciar
+// ============================================================================
+class InitialScreen extends StatefulWidget {
+  const InitialScreen({super.key});
+
+  @override
+  State<InitialScreen> createState() => _InitialScreenState();
+}
+
+class _InitialScreenState extends State<InitialScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _determineInitialRoute();
+  }
+
+  Future<void> _determineInitialRoute() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (!mounted) return;
+
+    // 1. Verificar si hay sesión activa en Supabase
+    final hasActiveSession = isAuthenticated;
+    debugPrint('🔑 Sesión activa: $hasActiveSession');
+
+    if (hasActiveSession) {
+      // Usuario ya tiene sesión → ir directo a selección de perfil
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const ProfileSelectionPage(),
+        ),
+      );
+      return;
+    }
+
+    // 2. Verificar si ya vio el video de intro
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenIntro = prefs.getBool('has_seen_intro') ?? false;
+    debugPrint('🎥 Ya vio intro: $hasSeenIntro');
+
+    if (hasSeenIntro || kIsWeb) {
+      // Ya vio el intro o está en web → ir a pantalla de bienvenida
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const WelcomeScreen(),
+        ),
+      );
+    } else {
+      // Primera vez en móvil → mostrar video intro
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const IntroVideoPage(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Pantalla de carga mientras determina la ruta
+    return Scaffold(
+      backgroundColor: const Color(0xFFB6D7A8),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: const Icon(
+                Icons.child_care,
+                size: 60,
+                color: Color(0xFF4F7A4A),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'KOA',
+              style: TextStyle(
+                fontSize: 48,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+                letterSpacing: 2,
+              ),
+            ),
+            const SizedBox(height: 40),
+            const CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ],
         ),
       ),
     );
@@ -702,13 +828,20 @@ class _IntroVideoPageState extends State<IntroVideoPage> {
     super.dispose();
   }
 
-  void _goNext() {
+  Future<void> _goNext() async {
     if (_hasNavigated && mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const ProfileSelectionPage(),
-        ),
-      );
+      // Marcar que ya vio el video intro
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('has_seen_intro', true);
+      debugPrint('✅ Video intro completado');
+      
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const WelcomeScreen(),
+          ),
+        );
+      }
     }
   }
 
@@ -1964,19 +2097,18 @@ class HomeContent extends StatelessWidget {
                             );
                           },
                         ),
+                        KoaFeatureCard(
+                          icon: Icons.bedtime,
+                          title: appState.tr('sleep'),
+                          description: appState.tr('sleep_desc'),
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const SleepPage()),
+                            );
+                          },
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 24),
-                    Text(
-                      appState.tr('recent_activities'),
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F7A4A),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const _RecentActivityList(),
                   ],
                 ),
               ),
@@ -2060,8 +2192,47 @@ class RegistroPage extends StatelessWidget {
 // ============================================================================
 // STATS PAGE - Página de estadísticas
 // ============================================================================
-class StatsPage extends StatelessWidget {
+class StatsPage extends StatefulWidget {
   const StatsPage({super.key});
+
+  @override
+  State<StatsPage> createState() => _StatsPageState();
+}
+
+class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<HealthMeasurement> _measurements = [];
+  String _gender = 'masculino'; // Por defecto
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    final measurements = await StorageService.loadHealthMeasurements();
+    final prefs = await SharedPreferences.getInstance();
+    final gender = prefs.getString('infant_gender') ?? 'masculino';
+    
+    debugPrint('ℹ️ Mediciones cargadas: ${measurements.length}');
+    for (var m in measurements) {
+      debugPrint('  - ${m.date}: ${m.weight}kg, ${m.height}cm, ${m.ageInMonths}m');
+    }
+    debugPrint('ℹ️ Género: $gender');
+    
+    setState(() {
+      _measurements = measurements;
+      _gender = gender;
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2082,58 +2253,645 @@ class StatsPage extends StatelessWidget {
                   topRight: Radius.circular(24),
                 ),
               ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    Text(
-                      appState.tr('statistics'),
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            fontSize: 22,
-                          ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 16),
+                  Text(
+                    'Estadísticas',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontSize: 22,
+                        ),
+                  ),
+                  const SizedBox(height: 16),
+                  TabBar(
+                    controller: _tabController,
+                    labelColor: const Color(0xFF4F7A4A),
+                    unselectedLabelColor: Colors.grey,
+                    indicatorColor: const Color(0xFF4F7A4A),
+                    tabs: const [
+                      Tab(text: 'Resumen'),
+                      Tab(text: 'Crecimiento'),
+                    ],
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildSummaryTab(isDark),
+                        _buildGrowthTab(),
+                      ],
                     ),
-                    const SizedBox(height: 24),
-                    Center(
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.bar_chart,
-                            size: 64,
-                            color: isDark ? Colors.grey[600] : Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            appState.tr('coming_soon'),
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                              color: isDark ? Colors.grey[400] : Colors.grey[600],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 32),
-                            child: Text(
-                              appState.tr('stats_desc'),
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: isDark ? Colors.grey[500] : Colors.grey[500],
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSummaryTab(bool isDark) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              Icons.bar_chart,
+              size: 64,
+              color: isDark ? Colors.grey[600] : Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Próximamente',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.grey[400] : Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                'Aquí podrás ver estadísticas generales',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.grey[500] : Colors.grey[500],
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGrowthTab() {
+    if (_measurements.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.show_chart, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'No hay datos de crecimiento',
+              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Agrega mediciones en la sección Salud',
+              style: TextStyle(color: Colors.grey[500], fontSize: 14),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Botón exportar PDF
+          ElevatedButton.icon(
+            onPressed: _exportGrowthPDF,
+            icon: const Icon(Icons.picture_as_pdf),
+            label: const Text('Exportar informe PDF'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F7A4A),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          
+          _buildWeightChart(),
+          const SizedBox(height: 24),
+          _buildHeightChart(),
+          const SizedBox(height: 24),
+          
+          // Tabla de mediciones
+          _buildMeasurementsTable(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeightChart() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Peso vs Edad',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4F7A4A),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 250,
+            child: LineChart(
+              _buildWeightChartData(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildChartLegend(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeightChart() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Talla vs Edad',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4F7A4A),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 250,
+            child: LineChart(
+              _buildHeightChartData(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildChartLegend(),
+        ],
+      ),
+    );
+  }
+
+  LineChartData _buildWeightChartData() {
+    // Datos del bebé
+    final babySpots = _measurements
+        .map((m) => FlSpot(m.ageInMonths.toDouble(), m.weight))
+        .toList()
+      ..sort((a, b) => a.x.compareTo(b.x));
+
+    // Curvas OMS
+    final whoData = _gender == 'femenino' ? whoWeightFemale : whoWeightMale;
+    final p3Spots = <FlSpot>[];
+    final p50Spots = <FlSpot>[];
+    final p97Spots = <FlSpot>[];
+
+    for (final entry in whoData.entries) {
+      final month = entry.key;
+      final values = entry.value;
+      p3Spots.add(FlSpot(month.toDouble(), values['p3']!));
+      p50Spots.add(FlSpot(month.toDouble(), values['p50']!));
+      p97Spots.add(FlSpot(month.toDouble(), values['p97']!));
+    }
+
+    return LineChartData(
+      gridData: FlGridData(
+        show: true,
+        drawVerticalLine: false,
+        horizontalInterval: 2,
+        getDrawingHorizontalLine: (value) => FlLine(
+          color: Colors.grey[300]!,
+          strokeWidth: 1,
+        ),
+      ),
+      titlesData: FlTitlesData(
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 40,
+            getTitlesWidget: (value, meta) => Text(
+              '${value.toInt()} kg',
+              style: const TextStyle(fontSize: 10),
+            ),
+          ),
+        ),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: 6,
+            getTitlesWidget: (value, meta) => Text(
+              '${value.toInt()}m',
+              style: const TextStyle(fontSize: 10),
+            ),
+          ),
+        ),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      ),
+      borderData: FlBorderData(show: false),
+      lineBarsData: [
+        // Curva P3 (rojo claro)
+        LineChartBarData(
+          spots: p3Spots,
+          isCurved: true,
+          color: Colors.red[300],
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
+          dashArray: [5, 5],
+        ),
+        // Curva P50 (verde)
+        LineChartBarData(
+          spots: p50Spots,
+          isCurved: true,
+          color: Colors.green[400],
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
+        ),
+        // Curva P97 (rojo claro)
+        LineChartBarData(
+          spots: p97Spots,
+          isCurved: true,
+          color: Colors.red[300],
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
+          dashArray: [5, 5],
+        ),
+        // Datos del bebé (azul)
+        LineChartBarData(
+          spots: babySpots,
+          isCurved: true,
+          color: Colors.blue[700],
+          barWidth: 3,
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (spot, percent, barData, index) {
+              return FlDotCirclePainter(
+                radius: 4,
+                color: Colors.blue[700]!,
+                strokeWidth: 2,
+                strokeColor: Colors.white,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  LineChartData _buildHeightChartData() {
+    // Datos del bebé
+    final babySpots = _measurements
+        .map((m) => FlSpot(m.ageInMonths.toDouble(), m.height))
+        .toList()
+      ..sort((a, b) => a.x.compareTo(b.x));
+
+    // Curvas OMS
+    final whoData = _gender == 'femenino' ? whoHeightFemale : whoHeightMale;
+    final p3Spots = <FlSpot>[];
+    final p50Spots = <FlSpot>[];
+    final p97Spots = <FlSpot>[];
+
+    for (final entry in whoData.entries) {
+      final month = entry.key;
+      final values = entry.value;
+      p3Spots.add(FlSpot(month.toDouble(), values['p3']!));
+      p50Spots.add(FlSpot(month.toDouble(), values['p50']!));
+      p97Spots.add(FlSpot(month.toDouble(), values['p97']!));
+    }
+
+    return LineChartData(
+      gridData: FlGridData(
+        show: true,
+        drawVerticalLine: false,
+        horizontalInterval: 5,
+        getDrawingHorizontalLine: (value) => FlLine(
+          color: Colors.grey[300]!,
+          strokeWidth: 1,
+        ),
+      ),
+      titlesData: FlTitlesData(
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 40,
+            getTitlesWidget: (value, meta) => Text(
+              '${value.toInt()} cm',
+              style: const TextStyle(fontSize: 10),
+            ),
+          ),
+        ),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: 6,
+            getTitlesWidget: (value, meta) => Text(
+              '${value.toInt()}m',
+              style: const TextStyle(fontSize: 10),
+            ),
+          ),
+        ),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      ),
+      borderData: FlBorderData(show: false),
+      lineBarsData: [
+        // Curva P3
+        LineChartBarData(
+          spots: p3Spots,
+          isCurved: true,
+          color: Colors.red[300],
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
+          dashArray: [5, 5],
+        ),
+        // Curva P50
+        LineChartBarData(
+          spots: p50Spots,
+          isCurved: true,
+          color: Colors.green[400],
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
+        ),
+        // Curva P97
+        LineChartBarData(
+          spots: p97Spots,
+          isCurved: true,
+          color: Colors.red[300],
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
+          dashArray: [5, 5],
+        ),
+        // Datos del bebé
+        LineChartBarData(
+          spots: babySpots,
+          isCurved: true,
+          color: Colors.blue[700],
+          barWidth: 3,
+          dotData: FlDotData(
+            show: true,
+            getDotPainter: (spot, percent, barData, index) {
+              return FlDotCirclePainter(
+                radius: 4,
+                color: Colors.blue[700]!,
+                strokeWidth: 2,
+                strokeColor: Colors.white,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChartLegend() {
+    return Wrap(
+      spacing: 16,
+      runSpacing: 8,
+      children: [
+        _LegendItem(color: Colors.blue[700]!, label: 'Tu bebé'),
+        _LegendItem(color: Colors.green[400]!, label: 'P50 (OMS)'),
+        _LegendItem(color: Colors.red[300]!, label: 'P3/P97 (OMS)', dashed: true),
+      ],
+    );
+  }
+
+  Widget _buildMeasurementsTable() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Historial de mediciones',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4F7A4A),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Table(
+            border: TableBorder.all(color: Colors.grey[300]!, width: 1),
+            columnWidths: const {
+              0: FlexColumnWidth(2),
+              1: FlexColumnWidth(1.5),
+              2: FlexColumnWidth(1.5),
+              3: FlexColumnWidth(1.5),
+            },
+            children: [
+              TableRow(
+                decoration: BoxDecoration(color: const Color(0xFF4F7A4A).withOpacity(0.1)),
+                children: const [
+                  Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Text('Fecha', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Text('Edad', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Text('Peso', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Text('Talla', style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+              ..._measurements.map((m) => TableRow(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text('${m.date.day}/${m.date.month}/${m.date.year}'),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text('${m.ageInMonths}m'),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text('${m.weight.toStringAsFixed(1)} kg'),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text('${m.height.toStringAsFixed(1)} cm'),
+                  ),
+                ],
+              )),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exportGrowthPDF() async {
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Generando PDF...')),
+      );
+
+      // Obtener datos del perfil
+      final prefs = await SharedPreferences.getInstance();
+      final babyName = prefs.getString('infant_name') ?? 'Mi bebé';
+
+      // Crear el documento PDF
+      final pdf = pw.Document();
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          build: (context) => [
+            // Título
+            pw.Header(
+              level: 0,
+              child: pw.Text(
+                'Informe de Crecimiento',
+                style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              'Bebé: $babyName',
+              style: const pw.TextStyle(fontSize: 14),
+            ),
+            pw.Text(
+              'Fecha: ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+              style: const pw.TextStyle(fontSize: 12),
+            ),
+            pw.SizedBox(height: 24),
+
+            // Tabla de mediciones
+            pw.Text(
+              'Historial de mediciones',
+              style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Table.fromTextArray(
+              headers: ['Fecha', 'Edad (meses)', 'Peso (kg)', 'Talla (cm)'],
+              data: _measurements.map((m) => [
+                '${m.date.day}/${m.date.month}/${m.date.year}',
+                m.ageInMonths.toString(),
+                m.weight.toStringAsFixed(1),
+                m.height.toStringAsFixed(1),
+              ]).toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              cellAlignment: pw.Alignment.center,
+            ),
+            pw.SizedBox(height: 16),
+            pw.Text(
+              'Nota: Este informe incluye las mediciones registradas comparadas con los estándares de la OMS.',
+              style: const pw.TextStyle(fontSize: 10),
+            ),
+          ],
+        ),
+      );
+
+      // Guardar el PDF
+      final dir = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final file = File('${dir.path}/informe_crecimiento_$timestamp.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      // Compartir el PDF
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Informe de crecimiento - $babyName',
+      );
+
+      debugPrint('✅ PDF generado: ${file.path}');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('¡PDF generado y compartido!')),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error al generar PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al generar PDF: $e')),
+        );
+      }
+    }
+  }
+}
+
+class _LegendItem extends StatelessWidget {
+  final Color color;
+  final String label;
+  final bool dashed;
+
+  const _LegendItem({
+    required this.color,
+    required this.label,
+    this.dashed = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 20,
+          height: 3,
+          decoration: BoxDecoration(
+            color: dashed ? null : color,
+            border: dashed ? Border.all(color: color, width: 2) : null,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+      ],
     );
   }
 }
@@ -2423,9 +3181,33 @@ class _InfantProfileHeaderState extends State<InfantProfileHeader> {
         final birthDate = DateTime.parse(birthIso);
         final now = DateTime.now();
         final diff = now.difference(birthDate);
-        final months = diff.inDays ~/ 30;
+        final totalMonths = diff.inDays ~/ 30;
+        final years = totalMonths ~/ 12;
+        final months = totalMonths % 12;
         final days = diff.inDays % 30;
-        ageText = '$months months, $days days old';
+        
+        // Obtener traducciones
+        final appState = Provider.of<AppState>(context, listen: false);
+        
+        if (years >= 1) {
+          // Mostrar en años
+          final yearText = years == 1 ? appState.tr('year') : appState.tr('years');
+          if (months > 0) {
+            final monthText = months == 1 ? appState.tr('month') : appState.tr('months');
+            ageText = '$years $yearText ${appState.tr('and')} $months $monthText ${appState.tr('old')}';
+          } else {
+            ageText = '$years $yearText ${appState.tr('old')}';
+          }
+        } else {
+          // Mostrar en meses
+          final monthText = totalMonths == 1 ? appState.tr('month') : appState.tr('months');
+          final dayText = days == 1 ? appState.tr('day') : appState.tr('days');
+          if (days > 0) {
+            ageText = '$totalMonths $monthText ${appState.tr('and')} $days $dayText ${appState.tr('old')}';
+          } else {
+            ageText = '$totalMonths $monthText ${appState.tr('old')}';
+          }
+        }
       } catch (_) {}
     }
 
@@ -2862,73 +3644,6 @@ class _BottomNavIcon extends StatelessWidget {
   }
 }
 
-class _RecentActivityList extends StatelessWidget {
-  const _RecentActivityList();
-
-  @override
-  Widget build(BuildContext context) {
-    // Por ahora es una lista de ejemplo; luego la conectaremos a datos reales.
-    final mockItems = [
-      'Stella had a wet diaper',
-      'Stella nursed (9m left)',
-      'Stella slept in her bed (1h 15m)',
-      '14 oz expressed (8m)',
-    ];
-
-    return Column(
-      children: [
-        for (final text in mockItems)
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  radius: 14,
-                  backgroundColor: Color(0xFFB6D7A8),
-                  child: Icon(
-                    Icons.local_drink,
-                    size: 16,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF4F7A4A),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '8:32 AM',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 class KoaFeatureCard extends StatelessWidget {
   const KoaFeatureCard({
     super.key,
@@ -2976,6 +3691,7 @@ class KoaFeatureCard extends StatelessWidget {
 
     return SizedBox(
       width: (MediaQuery.of(context).size.width - 24 * 2 - 16) / 2,
+      height: 180, // Altura fija para todas las tarjetas
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -3052,13 +3768,13 @@ class KoaFeatureCard extends StatelessWidget {
                 Text(
                   description,
                   style: TextStyle(
-                    fontSize: 12,
-                    height: 1.4,
+                    fontSize: 11,
+                    height: 1.3,
                     color: isDark 
                         ? Colors.white.withOpacity(0.7)
                         : const Color(0xFF6E6A6A),
                   ),
-                  maxLines: 2,
+                  maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
@@ -3666,12 +4382,17 @@ class _FoodPageState extends State<FoodPage> {
 // ============================================================================
 // MODELO DE CONFIGURACIÓN DE CÁMARA
 // ============================================================================
+enum CameraProtocol { rtsp, http }
+
 class CameraConfig {
   final String id;
   final String name;
   final String host;
+  final CameraProtocol protocol;
   final int rtspPort;
   final String rtspPath;
+  final int httpPort;
+  final String httpPath;
   final String username;
   final String password;
   final int onvifPort;
@@ -3682,8 +4403,11 @@ class CameraConfig {
     required this.id,
     required this.name,
     required this.host,
+    this.protocol = CameraProtocol.rtsp,
     this.rtspPort = 554,
     this.rtspPath = '/stream1',
+    this.httpPort = 4747,
+    this.httpPath = '/video',
     this.username = '',
     this.password = '',
     this.onvifPort = 80,
@@ -3691,17 +4415,29 @@ class CameraConfig {
     this.hasAudio = true,
   });
 
-  String get rtspUrl {
-    final auth = username.isNotEmpty ? '$username:$password@' : '';
-    return 'rtsp://$auth$host:$rtspPort$rtspPath';
+  String get streamUrl {
+    if (protocol == CameraProtocol.http) {
+      // HTTP/MJPEG (para DroidCam y similares)
+      return 'http://$host:$httpPort$httpPath';
+    } else {
+      // RTSP (cámaras IP tradicionales)
+      final auth = username.isNotEmpty ? '$username:$password@' : '';
+      return 'rtsp://$auth$host:$rtspPort$rtspPath';
+    }
   }
+
+  // Mantener compatibilidad con código existente
+  String get rtspUrl => streamUrl;
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
     'host': host,
+    'protocol': protocol.name,
     'rtspPort': rtspPort,
     'rtspPath': rtspPath,
+    'httpPort': httpPort,
+    'httpPath': httpPath,
     'username': username,
     'password': password,
     'onvifPort': onvifPort,
@@ -3713,8 +4449,16 @@ class CameraConfig {
     id: json['id'],
     name: json['name'],
     host: json['host'],
+    protocol: json['protocol'] != null 
+        ? CameraProtocol.values.firstWhere(
+            (e) => e.name == json['protocol'],
+            orElse: () => CameraProtocol.rtsp,
+          )
+        : CameraProtocol.rtsp,
     rtspPort: json['rtspPort'] ?? 554,
     rtspPath: json['rtspPath'] ?? '/stream1',
+    httpPort: json['httpPort'] ?? 4747,
+    httpPath: json['httpPath'] ?? '/video',
     username: json['username'] ?? '',
     password: json['password'] ?? '',
     onvifPort: json['onvifPort'] ?? 80,
@@ -3802,43 +4546,48 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
     });
 
     try {
-      // Crear player y controller
-      _player?.dispose();
-      _player = Player();
-      _videoController = VideoController(_player!);
+      if (_cameraConfig!.protocol == CameraProtocol.http) {
+        // Para HTTP/MJPEG (DroidCam), no usamos Media Kit
+        // Solo marcamos como conectado para mostrar la imagen
+        setState(() => _connectionState = CameraConnectionState.connected);
+      } else {
+        // RTSP: usar Media Kit
+        _player?.dispose();
+        _player = Player();
+        _videoController = VideoController(_player!);
 
-      // Configurar opciones para RTSP
-      await _player!.open(
-        Media(_cameraConfig!.rtspUrl),
-        play: true,
-      );
+        await _player!.open(
+          Media(_cameraConfig!.streamUrl),
+          play: true,
+        );
 
-      // Escuchar errores
-      _player!.stream.error.listen((error) {
-        if (mounted) {
-          setState(() {
-            _connectionState = CameraConnectionState.error;
-            _errorMessage = error;
-          });
-        }
-      });
+        // Escuchar errores
+        _player!.stream.error.listen((error) {
+          if (mounted) {
+            setState(() {
+              _connectionState = CameraConnectionState.error;
+              _errorMessage = error;
+            });
+          }
+        });
 
-      // Escuchar cuando empiece a reproducir
-      _player!.stream.playing.listen((playing) {
-        if (mounted && playing) {
-          setState(() => _connectionState = CameraConnectionState.connected);
-        }
-      });
+        // Escuchar cuando empiece a reproducir
+        _player!.stream.playing.listen((playing) {
+          if (mounted && playing) {
+            setState(() => _connectionState = CameraConnectionState.connected);
+          }
+        });
 
-      // Timeout de conexión
-      Future.delayed(const Duration(seconds: 15), () {
-        if (mounted && _connectionState == CameraConnectionState.connecting) {
-          setState(() {
-            _connectionState = CameraConnectionState.error;
-            _errorMessage = 'Tiempo de espera agotado';
-          });
-        }
-      });
+        // Timeout de conexión
+        Future.delayed(const Duration(seconds: 15), () {
+          if (mounted && _connectionState == CameraConnectionState.connecting) {
+            setState(() {
+              _connectionState = CameraConnectionState.error;
+              _errorMessage = 'Tiempo de espera agotado';
+            });
+          }
+        });
+      }
 
     } catch (e) {
       if (mounted) {
@@ -4248,7 +4997,11 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
           Colors.redAccent,
         );
       case CameraConnectionState.connected:
-        if (_videoController != null) {
+        if (_cameraConfig!.protocol == CameraProtocol.http) {
+          // HTTP/MJPEG stream
+          return _MjpegWidget(url: _cameraConfig!.streamUrl);
+        } else if (_videoController != null) {
+          // RTSP con Media Kit
           return Video(
             controller: _videoController!,
             fit: BoxFit.contain,
@@ -4383,6 +5136,175 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
 }
 
 // ============================================================================
+// MJPEG WIDGET - Widget para streams HTTP/MJPEG (DroidCam)
+// ============================================================================
+class _MjpegWidget extends StatefulWidget {
+  final String url;
+
+  const _MjpegWidget({required this.url});
+
+  @override
+  State<_MjpegWidget> createState() => _MjpegWidgetState();
+}
+
+class _MjpegWidgetState extends State<_MjpegWidget> {
+  Uint8List? _currentFrame;
+  bool _isLoading = true;
+  String _errorMessage = '';
+  StreamSubscription<List<int>>? _streamSubscription;
+  http.Client? _httpClient;
+
+  @override
+  void initState() {
+    super.initState();
+    _startMjpegStream();
+  }
+
+  @override
+  void dispose() {
+    _streamSubscription?.cancel();
+    _httpClient?.close();
+    super.dispose();
+  }
+
+  Future<void> _startMjpegStream() async {
+    try {
+      _httpClient = http.Client();
+      final request = http.Request('GET', Uri.parse(widget.url));
+      final response = await _httpClient!.send(request);
+
+      if (response.statusCode == 200) {
+        // Buffer para acumular bytes
+        List<int> buffer = [];
+        const jpegStart = [0xFF, 0xD8]; // Marcador de inicio JPEG
+        const jpegEnd = [0xFF, 0xD9];   // Marcador de fin JPEG
+
+        _streamSubscription = response.stream.listen(
+          (List<int> chunk) {
+            buffer.addAll(chunk);
+
+            // Buscar inicio y fin de imagen JPEG
+            int startIndex = -1;
+            int endIndex = -1;
+
+            for (int i = 0; i < buffer.length - 1; i++) {
+              if (buffer[i] == jpegStart[0] && buffer[i + 1] == jpegStart[1]) {
+                startIndex = i;
+              }
+              if (buffer[i] == jpegEnd[0] && buffer[i + 1] == jpegEnd[1]) {
+                endIndex = i + 1;
+                break;
+              }
+            }
+
+            // Si encontramos una imagen completa
+            if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
+              final imageBytes = buffer.sublist(startIndex, endIndex + 1);
+              if (mounted) {
+                setState(() {
+                  _currentFrame = Uint8List.fromList(imageBytes);
+                  _isLoading = false;
+                  _errorMessage = '';
+                });
+              }
+              // Limpiar buffer
+              buffer = buffer.sublist(endIndex + 1);
+            }
+
+            // Evitar que el buffer crezca demasiado
+            if (buffer.length > 1024 * 1024) {
+              buffer.clear();
+            }
+          },
+          onError: (error) {
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+                _errorMessage = 'Error de stream: ${error.toString()}';
+              });
+            }
+          },
+          onDone: () {
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+                _errorMessage = 'Stream cerrado';
+              });
+            }
+          },
+        );
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'Error HTTP: ${response.statusCode}';
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Error de conexión: ${e.toString()}';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading && _currentFrame == null) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Color(0xFFB6D7A8)),
+            SizedBox(height: 16),
+            Text(
+              'Conectando a stream HTTP...',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.redAccent, size: 64),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage,
+              style: const TextStyle(color: Colors.redAccent),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'URL: ${widget.url}',
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_currentFrame != null) {
+      return Image.memory(
+        _currentFrame!,
+        fit: BoxFit.contain,
+        gaplessPlayback: true, // Transición suave entre frames
+      );
+    }
+
+    return const SizedBox();
+  }
+}
+
+// ============================================================================
 // CAMERA CONFIG SHEET - Formulario de configuración de cámara
 // ============================================================================
 class _CameraConfigSheet extends StatefulWidget {
@@ -4412,6 +5334,7 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
   bool _showPassword = false;
   bool _hasPTZ = true;
   bool _hasAudio = true;
+  CameraProtocol _protocol = CameraProtocol.rtsp;
 
   @override
   void initState() {
@@ -4420,8 +5343,14 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
       final c = widget.existingConfig!;
       _nameController.text = c.name;
       _hostController.text = c.host;
-      _portController.text = c.rtspPort.toString();
-      _pathController.text = c.rtspPath;
+      _protocol = c.protocol;
+      if (_protocol == CameraProtocol.http) {
+        _portController.text = c.httpPort.toString();
+        _pathController.text = c.httpPath;
+      } else {
+        _portController.text = c.rtspPort.toString();
+        _pathController.text = c.rtspPath;
+      }
       _userController.text = c.username;
       _passController.text = c.password;
       _hasPTZ = c.hasPTZ;
@@ -4454,12 +5383,20 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
       return;
     }
 
+    final port = int.tryParse(_portController.text) ?? (_protocol == CameraProtocol.http ? 4747 : 554);
+    final path = _pathController.text.trim().isEmpty 
+        ? (_protocol == CameraProtocol.http ? '/video' : '/stream1') 
+        : _pathController.text.trim();
+
     final config = CameraConfig(
       id: widget.existingConfig?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
       name: _nameController.text.trim(),
       host: _hostController.text.trim(),
-      rtspPort: int.tryParse(_portController.text) ?? 554,
-      rtspPath: _pathController.text.trim().isEmpty ? '/stream1' : _pathController.text.trim(),
+      protocol: _protocol,
+      rtspPort: _protocol == CameraProtocol.rtsp ? port : (widget.existingConfig?.rtspPort ?? 554),
+      rtspPath: _protocol == CameraProtocol.rtsp ? path : (widget.existingConfig?.rtspPath ?? '/stream1'),
+      httpPort: _protocol == CameraProtocol.http ? port : (widget.existingConfig?.httpPort ?? 4747),
+      httpPath: _protocol == CameraProtocol.http ? path : (widget.existingConfig?.httpPath ?? '/video'),
       username: _userController.text.trim(),
       password: _passController.text,
       hasPTZ: _hasPTZ,
@@ -4534,15 +5471,65 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
               keyboardType: TextInputType.url,
             ),
             const SizedBox(height: 16),
-            // Puerto y Ruta
+            // Selector de protocolo
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.settings_input_antenna, color: const Color(0xFF4F7A4A), size: 20),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Protocolo',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF4F4A4A),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildProtocolOption(
+                          CameraProtocol.rtsp,
+                          'RTSP',
+                          'Cámaras IP tradicionales',
+                          Icons.videocam,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildProtocolOption(
+                          CameraProtocol.http,
+                          'HTTP',
+                          'DroidCam / MJPEG',
+                          Icons.phone_android,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Puerto y Ruta (dinámicos según protocolo)
             Row(
               children: [
                 Expanded(
                   flex: 1,
                   child: _buildTextField(
                     controller: _portController,
-                    label: tr('rtsp_port'),
-                    hint: '554',
+                    label: _protocol == CameraProtocol.rtsp ? tr('rtsp_port') : 'Puerto HTTP',
+                    hint: _protocol == CameraProtocol.rtsp ? '554' : '4747',
                     icon: Icons.numbers,
                     keyboardType: TextInputType.number,
                   ),
@@ -4552,8 +5539,8 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
                   flex: 2,
                   child: _buildTextField(
                     controller: _pathController,
-                    label: tr('rtsp_path'),
-                    hint: tr('rtsp_path_hint'),
+                    label: _protocol == CameraProtocol.rtsp ? tr('rtsp_path') : 'Ruta HTTP',
+                    hint: _protocol == CameraProtocol.rtsp ? tr('rtsp_path_hint') : '/video',
                     icon: Icons.link,
                   ),
                 ),
@@ -4606,9 +5593,9 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'URL RTSP:',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  Text(
+                    'URL ${_protocol == CameraProtocol.rtsp ? 'RTSP' : 'HTTP'}:',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -4688,12 +5675,19 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
 
   String _buildPreviewUrl() {
     final host = _hostController.text.isEmpty ? 'IP' : _hostController.text;
-    final port = _portController.text.isEmpty ? '554' : _portController.text;
-    final path = _pathController.text.isEmpty ? '/stream1' : _pathController.text;
-    final user = _userController.text;
-    final pass = _passController.text;
-    final auth = user.isNotEmpty ? '$user:***@' : '';
-    return 'rtsp://$auth$host:$port$path';
+    final defaultPort = _protocol == CameraProtocol.rtsp ? '554' : '4747';
+    final defaultPath = _protocol == CameraProtocol.rtsp ? '/stream1' : '/video';
+    final port = _portController.text.isEmpty ? defaultPort : _portController.text;
+    final path = _pathController.text.isEmpty ? defaultPath : _pathController.text;
+    
+    if (_protocol == CameraProtocol.http) {
+      return 'http://$host:$port$path';
+    } else {
+      final user = _userController.text;
+      final pass = _passController.text;
+      final auth = user.isNotEmpty ? '$user:***@' : '';
+      return 'rtsp://$auth$host:$port$path';
+    }
   }
 
   Widget _buildTextField({
@@ -4725,8 +5719,512 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
       onChanged: (_) => setState(() {}),
     );
   }
+
+  Widget _buildProtocolOption(
+    CameraProtocol protocol,
+    String title,
+    String subtitle,
+    IconData icon,
+  ) {
+    final isSelected = _protocol == protocol;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _protocol = protocol;
+          // Actualizar valores por defecto según el protocolo
+          if (protocol == CameraProtocol.http) {
+            _portController.text = '4747';
+            _pathController.text = '/video';
+          } else {
+            _portController.text = '554';
+            _pathController.text = '/stream1';
+          }
+        });
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF4F7A4A).withOpacity(0.1) : Colors.transparent,
+          border: Border.all(
+            color: isSelected ? const Color(0xFF4F7A4A) : Colors.grey[300]!,
+            width: isSelected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? const Color(0xFF4F7A4A) : Colors.grey,
+              size: 28,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                color: isSelected ? const Color(0xFF4F7A4A) : Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
+// ============================================================================
+// SLEEP PAGE - Página de control de sueño
+// ============================================================================
+class SleepPage extends StatefulWidget {
+  const SleepPage({super.key});
+
+  @override
+  State<SleepPage> createState() => _SleepPageState();
+}
+
+class _SleepPageState extends State<SleepPage> {
+  List<SleepSession> _sessions = [];
+  SleepSession? _ongoingSession;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSessions();
+  }
+
+  Future<void> _loadSessions() async {
+    final sessions = await StorageService.loadSleepSessions();
+    if (mounted) {
+      setState(() {
+        _sessions = sessions..sort((a, b) => b.startTime.compareTo(a.startTime));
+        _ongoingSession = _sessions.firstWhere(
+          (s) => s.isOngoing,
+          orElse: () => SleepSession(startTime: DateTime.now()),
+        );
+        if (!_ongoingSession!.isOngoing) {
+          _ongoingSession = null;
+        }
+      });
+    }
+    debugPrint('✅ Cargadas ${_sessions.length} sesiones de sueño');
+  }
+
+  Future<void> _startSleep() async {
+    final session = SleepSession(startTime: DateTime.now());
+    setState(() {
+      _sessions.insert(0, session);
+      _ongoingSession = session;
+    });
+    await StorageService.saveSleepSessions(_sessions);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sueño iniciado')),
+    );
+  }
+
+  Future<void> _endSleep() async {
+    if (_ongoingSession != null) {
+      setState(() {
+        _ongoingSession!.endTime = DateTime.now();
+        _ongoingSession = null;
+      });
+      await StorageService.saveSleepSessions(_sessions);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sueño finalizado')),
+      );
+    }
+  }
+
+  Future<void> _deleteSession(SleepSession session) async {
+    setState(() => _sessions.remove(session));
+    await StorageService.saveSleepSessions(_sessions);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sesión eliminada')),
+    );
+  }
+
+  // Calcular total de horas de sueño hoy
+  double get _todayTotalHours {
+    final today = DateTime.now();
+    final todaySessions = _sessions.where((s) {
+      return s.startTime.year == today.year &&
+          s.startTime.month == today.month &&
+          s.startTime.day == today.day &&
+          s.durationInMinutes != null;
+    });
+    
+    final totalMinutes = todaySessions.fold<int>(
+      0,
+      (sum, session) => sum + (session.durationInMinutes ?? 0),
+    );
+    
+    return totalMinutes / 60.0;
+  }
+
+  // Calcular promedio de horas de sueño (últimos 7 días)
+  double get _averageHours {
+    final now = DateTime.now();
+    final weekAgo = now.subtract(const Duration(days: 7));
+    
+    final recentSessions = _sessions.where((s) {
+      return s.startTime.isAfter(weekAgo) && s.durationInMinutes != null;
+    });
+    
+    if (recentSessions.isEmpty) return 0;
+    
+    final totalMinutes = recentSessions.fold<int>(
+      0,
+      (sum, session) => sum + (session.durationInMinutes ?? 0),
+    );
+    
+    // Calcular días únicos
+    final uniqueDays = recentSessions
+        .map((s) => DateTime(s.startTime.year, s.startTime.month, s.startTime.day))
+        .toSet()
+        .length;
+    
+    return (totalMinutes / 60.0) / uniqueDays;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF9FA8DA),
+        title: const Text('Control de Sueño'),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFE8EAF6),
+              Color(0xFFC5CAE9),
+              Color(0xFF9FA8DA),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Estadísticas
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.bedtime, size: 48, color: Color(0xFF5C6BC0)),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Estadísticas de Sueño',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF3F51B5),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildStatCard(
+                              'Hoy',
+                              '${_todayTotalHours.toStringAsFixed(1)}h',
+                              Icons.today,
+                              Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildStatCard(
+                              'Promedio',
+                              '${_averageHours.toStringAsFixed(1)}h',
+                              Icons.trending_up,
+                              Colors.purple,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Botones de control
+                if (_ongoingSession == null)
+                  ElevatedButton.icon(
+                    onPressed: _startSleep,
+                    icon: const Icon(Icons.nightlight, size: 28),
+                    label: const Text(
+                      'Iniciar Sueño',
+                      style: TextStyle(fontSize: 18),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF5C6BC0),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.indigo[400]!,
+                          Colors.indigo[600]!,
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.indigo.withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.bedtime, color: Colors.white, size: 24),
+                            SizedBox(width: 8),
+                            Text(
+                              'Durmiendo...',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Desde: ${_formatTime(_ongoingSession!.startTime)}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _endSleep,
+                          icon: const Icon(Icons.alarm),
+                          label: const Text('Finalizar Sueño'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.indigo[700],
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 14, horizontal: 24),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 24),
+
+                // Historial
+                const Text(
+                  'Historial de Sueño',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF3F51B5),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                if (_sessions.where((s) => !s.isOngoing).isEmpty)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        children: [
+                          Icon(Icons.bedtime_outlined, size: 64, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No hay sesiones registradas',
+                            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  ..._sessions
+                      .where((s) => !s.isOngoing)
+                      .map((session) => _buildSessionCard(session)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSessionCard(SleepSession session) {
+    final date = session.startTime;
+    final isToday = DateTime.now().day == date.day &&
+        DateTime.now().month == date.month &&
+        DateTime.now().year == date.year;
+    
+    String dateText;
+    if (isToday) {
+      dateText = 'Hoy';
+    } else {
+      dateText = '${date.day}/${date.month}/${date.year}';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF9FA8DA).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.bedtime,
+              color: Color(0xFF5C6BC0),
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  dateText,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF3F51B5),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_formatTime(session.startTime)} - ${session.endTime != null ? _formatTime(session.endTime!) : "?"}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                session.durationFormatted,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF5C6BC0),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.delete_outline, color: Colors.red[400]),
+                onPressed: () => _deleteSession(session),
+                iconSize: 20,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+}
+
+// ============================================================================
+// HEALTH PAGE - Página de salud
+// ============================================================================
 class HealthPage extends StatefulWidget {
   const HealthPage({super.key});
 
@@ -4738,16 +6236,20 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
   late TabController _tabController;
   final List<MedicalAppointment> _appointments = [];
   final List<MedicineReminder> _medicines = [];
+  final List<HealthMeasurement> _measurements = [];
+  final List<VaccineRecord> _vaccines = [];
   String _pediatricianName = '';
   String _pediatricianPhone = '';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _loadPediatricianData();
     _loadAppointments();
     _loadMedicines();
+    _loadMeasurements();
+    _loadVaccines();
   }
 
   Future<void> _loadAppointments() async {
@@ -4770,6 +6272,45 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
       });
     }
     debugPrint('✅ Cargados ${medicines.length} medicamentos');
+  }
+
+  Future<void> _loadMeasurements() async {
+    final measurements = await StorageService.loadHealthMeasurements();
+    if (mounted) {
+      setState(() {
+        _measurements.clear();
+        _measurements.addAll(measurements);
+        _measurements.sort((a, b) => b.date.compareTo(a.date)); // Más recientes primero
+      });
+    }
+    debugPrint('✅ Cargadas ${measurements.length} mediciones de salud');
+  }
+
+  Future<void> _loadVaccines() async {
+    final vaccines = await StorageService.loadVaccines();
+    if (mounted) {
+      // Si no hay vacunas guardadas, inicializar con el esquema estándar
+      if (vaccines.isEmpty) {
+        final standardVaccines = VaccineSchedule.standardVaccines.map((v) {
+          return VaccineRecord(
+            vaccineId: v['id'] as String,
+            name: v['name'] as String,
+            ageInMonths: v['ageInMonths'] as int,
+          );
+        }).toList();
+        setState(() {
+          _vaccines.clear();
+          _vaccines.addAll(standardVaccines);
+        });
+        await StorageService.saveVaccines(standardVaccines);
+      } else {
+        setState(() {
+          _vaccines.clear();
+          _vaccines.addAll(vaccines);
+        });
+      }
+    }
+    debugPrint('✅ Cargadas ${_vaccines.length} vacunas');
   }
 
   @override
@@ -4806,6 +6347,8 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
           tabs: const [
             Tab(icon: Icon(Icons.calendar_today), text: 'Citas'),
             Tab(icon: Icon(Icons.medication), text: 'Medicinas'),
+            Tab(icon: Icon(Icons.height), text: 'Crecimiento'),
+            Tab(icon: Icon(Icons.vaccines), text: 'Vacunas'),
             Tab(icon: Icon(Icons.phone), text: 'Pediatra'),
           ],
         ),
@@ -4827,6 +6370,8 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
           children: [
             _buildAppointmentsTab(),
             _buildMedicinesTab(),
+            _buildGrowthTab(),
+            _buildVaccinesTab(),
             _buildPediatricianTab(),
           ],
         ),
@@ -5405,7 +6950,522 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
     );
   }
 
-  // TAB 3: Pediatra
+  // TAB 3: Crecimiento (Peso y Talla)
+  Widget _buildGrowthTab() {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Botón agregar medición
+            ElevatedButton.icon(
+              onPressed: _addMeasurement,
+              icon: const Icon(Icons.add),
+              label: const Text('Nueva Medición'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFB6D7A8),
+                foregroundColor: const Color(0xFF355334),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            
+            // Botón ver gráficas
+            OutlinedButton.icon(
+              onPressed: () {
+                // Navegar a StatsPage (tab de estadísticas)
+                Navigator.of(context).pop(); // Cerrar HealthPage
+                // El usuario puede ir manualmente a Stats desde el bottom nav
+              },
+              icon: const Icon(Icons.show_chart),
+              label: const Text('Ver Gráficas de Crecimiento'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF4F7A4A),
+                side: const BorderSide(color: Color(0xFF4F7A4A), width: 2),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Historial de mediciones
+            const Text(
+              'Historial de mediciones',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4F7A4A),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            if (_measurements.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      Icon(Icons.show_chart, size: 64, color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No hay mediciones registradas',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ..._measurements.map((m) => _buildMeasurementCard(m)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMeasurementCard(HealthMeasurement measurement) {
+    // Obtener género del bebé para percentiles
+    // Por ahora usar 'masculino' por defecto, se puede mejorar
+    final percentilePeso = 50.0; // Placeholder
+    final percentileTalla = 50.0; // Placeholder
+    
+    final dateStr = '${measurement.date.day}/${measurement.date.month}/${measurement.date.year}';
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.calendar_today, size: 16, color: Color(0xFF4F7A4A)),
+              const SizedBox(width: 8),
+              Text(
+                dateStr,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF4F7A4A),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${measurement.ageInMonths} meses',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricChip(
+                  icon: Icons.monitor_weight,
+                  label: 'Peso',
+                  value: '${measurement.weight.toStringAsFixed(1)} kg',
+                  color: Colors.blue,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMetricChip(
+                  icon: Icons.height,
+                  label: 'Talla',
+                  value: '${measurement.height.toStringAsFixed(1)} cm',
+                  color: Colors.green,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricChip({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addMeasurement() async {
+    final prefs = await SharedPreferences.getInstance();
+    final birthIso = prefs.getString('infant_birthdate');
+    
+    if (birthIso == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se encontró fecha de nacimiento del bebé')),
+      );
+      return;
+    }
+
+    DateTime? selectedDate = DateTime.now();
+    final weightController = TextEditingController();
+    final heightController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nueva Medición'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: Text(
+                    selectedDate == null
+                        ? 'Seleccionar fecha'
+                        : '${selectedDate!.day}/${selectedDate!.month}/${selectedDate!.year}',
+                  ),
+                  leading: const Icon(Icons.calendar_today),
+                  onTap: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: selectedDate ?? DateTime.now(),
+                      firstDate: DateTime.parse(birthIso),
+                      lastDate: DateTime.now(),
+                    );
+                    if (date != null) {
+                      setDialogState(() => selectedDate = date);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: weightController,
+                  decoration: const InputDecoration(
+                    labelText: 'Peso (kg)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.monitor_weight),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: heightController,
+                  decoration: const InputDecoration(
+                    labelText: 'Talla (cm)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.height),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final weight = double.tryParse(weightController.text.replaceAll(',', '.'));
+              final height = double.tryParse(heightController.text.replaceAll(',', '.'));
+              
+              if (weight != null && height != null && selectedDate != null) {
+                // Calcular edad en meses
+                final birthDate = DateTime.parse(birthIso);
+                final ageInMonths = ((selectedDate!.year - birthDate.year) * 12 + 
+                    (selectedDate!.month - birthDate.month));
+                
+                setState(() {
+                  _measurements.add(HealthMeasurement(
+                    date: selectedDate!,
+                    weight: weight,
+                    height: height,
+                    ageInMonths: ageInMonths,
+                  ));
+                  _measurements.sort((a, b) => b.date.compareTo(a.date));
+                });
+                
+                // Guardar
+                await StorageService.saveHealthMeasurements(_measurements);
+                debugPrint('✅ Medición guardada');
+                
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Medición agregada')),
+                );
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // TAB 4: Vacunas
+  Widget _buildVaccinesTab() {
+    // Agrupar vacunas por edad
+    final vaccinesByAge = <int, List<VaccineRecord>>{};
+    for (final vaccine in _vaccines) {
+      if (!vaccinesByAge.containsKey(vaccine.ageInMonths)) {
+        vaccinesByAge[vaccine.ageInMonths] = [];
+      }
+      vaccinesByAge[vaccine.ageInMonths]!.add(vaccine);
+    }
+    final sortedAges = vaccinesByAge.keys.toList()..sort();
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Título
+            const Text(
+              'Cartilla de Vacunación',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4F7A4A),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Esquema de vacunación recomendado',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Vacunas agrupadas por edad
+            ...sortedAges.map((ageInMonths) {
+              final vaccines = vaccinesByAge[ageInMonths]!;
+              final applied = vaccines.where((v) => v.isApplied).length;
+              final total = vaccines.length;
+              
+              String ageText;
+              if (ageInMonths == 0) {
+                ageText = 'Recién nacido';
+              } else if (ageInMonths < 12) {
+                ageText = '$ageInMonths ${ageInMonths == 1 ? "mes" : "meses"}';
+              } else {
+                final years = ageInMonths ~/ 12;
+                final months = ageInMonths % 12;
+                if (months == 0) {
+                  ageText = '$years ${years == 1 ? "año" : "años"}';
+                } else {
+                  ageText = '$years ${years == 1 ? "año" : "años"} y $months ${months == 1 ? "mes" : "meses"}';
+                }
+              }
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: applied == total
+                            ? const Color(0xFFB6D7A8).withOpacity(0.3)
+                            : const Color(0xFFFFF3CD).withOpacity(0.5),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                          topRight: Radius.circular(16),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            applied == total
+                                ? Icons.check_circle
+                                : Icons.pending,
+                            color: applied == total
+                                ? Colors.green[700]
+                                : Colors.orange[700],
+                            size: 24,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  ageText,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF4F7A4A),
+                                  ),
+                                ),
+                                Text(
+                                  '$applied de $total aplicadas',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ...vaccines.map((vaccine) => _buildVaccineItem(vaccine)),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVaccineItem(VaccineRecord vaccine) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.grey[200]!, width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Checkbox
+          Checkbox(
+            value: vaccine.isApplied,
+            onChanged: (value) async {
+              if (value == true) {
+                final date = await showDatePicker(
+                  context: context,
+                  initialDate: DateTime.now(),
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime.now(),
+                  helpText: 'Fecha de aplicación',
+                );
+                if (date != null) {
+                  setState(() {
+                    vaccine.appliedDate = date;
+                  });
+                  await StorageService.saveVaccines(_vaccines);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Vacuna marcada como aplicada')),
+                  );
+                }
+              } else {
+                setState(() {
+                  vaccine.appliedDate = null;
+                });
+                await StorageService.saveVaccines(_vaccines);
+              }
+            },
+            activeColor: const Color(0xFF4F7A4A),
+          ),
+          const SizedBox(width: 12),
+          // Info de la vacuna
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  vaccine.name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: vaccine.isApplied
+                        ? const Color(0xFF4F7A4A)
+                        : Colors.black87,
+                    decoration: vaccine.isApplied
+                        ? TextDecoration.lineThrough
+                        : null,
+                  ),
+                ),
+                if (vaccine.appliedDate != null)
+                  Text(
+                    'Aplicada: ${vaccine.appliedDate!.day}/${vaccine.appliedDate!.month}/${vaccine.appliedDate!.year}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          // Icono de estado
+          if (vaccine.isApplied)
+            Icon(
+              Icons.check_circle,
+              color: Colors.green[600],
+              size: 24,
+            )
+          else
+            Icon(
+              Icons.radio_button_unchecked,
+              color: Colors.grey[400],
+              size: 24,
+            ),
+        ],
+      ),
+    );
+  }
+
+  // TAB 5: Pediatra
   Widget _buildPediatricianTab() {
     return SafeArea(
       child: SingleChildScrollView(
@@ -5521,14 +7581,14 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Colors.green[400]!,
-                      Colors.green[600]!,
+                      Colors.red[400]!,
+                      Colors.red[600]!,
                     ],
                   ),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.green.withValues(alpha: 0.3),
+                      color: Colors.red.withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),
@@ -5556,7 +7616,7 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
-                        foregroundColor: Colors.green[700],
+                        foregroundColor: Colors.red[700],
                         padding: const EdgeInsets.symmetric(
                             vertical: 16, horizontal: 24),
                         shape: RoundedRectangleBorder(
