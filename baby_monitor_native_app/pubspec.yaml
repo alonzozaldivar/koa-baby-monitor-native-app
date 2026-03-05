@@ -75,9 +75,9 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/koa_cover.png"
+  image_path: "assets/images/koa_logo.png"
   adaptive_icon_background: "#B6D7A8"
-  adaptive_icon_foreground: "assets/images/koa_cover.png"
+  adaptive_icon_foreground: "assets/images/koa_logo.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
