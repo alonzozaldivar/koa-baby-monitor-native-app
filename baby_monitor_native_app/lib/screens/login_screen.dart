@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import '../main.dart';
+import 'face_capture_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -79,6 +80,36 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loginWithFace() async {
+    try {
+      // Abrir pantalla de captura facial
+      final result = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (context) => const FaceCaptureScreen(isLogin: true),
+        ),
+      );
+
+      // Si el login fue exitoso, navegar a selección de perfil
+      if (result == true && mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => const ProfileSelectionPage(),
+          ),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al acceder a la cámara: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -293,16 +324,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   width: double.infinity,
                   height: 56,
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      // TODO: Implementar login con reconocimiento facial
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Reconocimiento facial disponible próximamente',
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: _loginWithFace,
                     icon: const Icon(Icons.face),
                     label: const Text(
                       'Reconocimiento facial',

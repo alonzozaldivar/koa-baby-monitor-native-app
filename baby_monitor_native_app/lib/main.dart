@@ -2927,13 +2927,15 @@ class SettingsPage extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
-      // No borramos los datos del perfil, solo cerramos sesión
-      // El perfil sigue existiendo para seleccionarlo después
+      // Cerrar sesión de Supabase
+      await Supabase.instance.client.auth.signOut();
+      debugPrint('✅ Sesión cerrada en Supabase');
       
+      // Navegar a WelcomeScreen para permitir otro usuario iniciar sesión
       if (context.mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (_) => const ProfileSelectionPage(),
+            builder: (_) => const WelcomeScreen(),
           ),
           (route) => false,
         );

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 import '../main.dart';
+import 'face_capture_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -32,6 +33,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  Future<void> _offerFaceRegistration() async {
+    final register = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.face, color: const Color(0xFF4F7A4A), size: 32),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Registrar rostro',
+                style: TextStyle(fontSize: 20),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          '¿Deseas registrar tu rostro para acceso rápido con reconocimiento facial?',
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Ahora no'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.face),
+            label: const Text('Registrar'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F7A4A),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (register == true && mounted) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => const FaceCaptureScreen(isLogin: false),
+        ),
+      );
+    }
+  }
+
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -52,13 +104,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         );
 
+        // Preguntar si desea registrar su rostro
+        await _offerFaceRegistration();
+
         // Navegar a la selección de perfil
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => const ProfileSelectionPage(),
-          ),
-          (route) => false,
-        );
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (context) => const ProfileSelectionPage(),
+            ),
+            (route) => false,
+          );
+        }
       }
     } on AuthException catch (e) {
       if (mounted) {
