@@ -1,0 +1,130 @@
+workflows:
+  # ========================================
+  # WORKFLOW PARA iOS
+  # ========================================
+  ios-workflow:
+    name: iOS Build
+    max_build_duration: 60
+    instance_type: mac_mini_m1
+    
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      
+      vars:
+        # Variables de entorno (configurar en Codemagic UI)
+        BUNDLE_ID: "com.koa.babymonitor"
+        APP_STORE_CONNECT_ISSUER_ID: Encrypted(...)  # Configurar en Codemagic
+        APP_STORE_CONNECT_KEY_IDENTIFIER: Encrypted(...)
+        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...)
+        CERTIFICATE_PRIVATE_KEY: Encrypted(...)
+        
+      groups:
+        # Grupos de variables (configurar en Codemagic UI)
+        - app_store_credentials
+        
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+          
+      - name: Install CocoaPods dependencies
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+          
+      - name: Flutter build iOS
+        script: |
+          flutter build ipa \
+            --release \
+            --export-options-plist=/Users/builder/export_options.plist
+            
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+      
+    publishing:
+      email:
+        recipients:
+          - alonzo.zaldivar.29@gmail.com
+        notify:
+          success: true
+          failure: true
+          
+  # ========================================
+  # WORKFLOW PARA ANDROID
+  # ========================================
+  android-workflow:
+    name: Android Build
+    max_build_duration: 60
+    instance_type: linux_x2
+    
+    environment:
+      flutter: stable
+      java: 11
+      
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+          
+      - name: Build Android APK
+        script: |
+          flutter build apk --release
+          
+      - name: Build Android App Bundle
+        script: |
+          flutter build appbundle --release
+          
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/app/outputs/bundle/**/*.aab
+      
+    publishing:
+      email:
+        recipients:
+          - alonzo.zaldivar.29@gmail.com
+        notify:
+          success: true
+          failure: true
+          
+  # ========================================
+  # WORKFLOW PARA AMBAS PLATAFORMAS
+  # ========================================
+  all-platforms:
+    name: Build iOS & Android
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      java: 11
+      
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+          
+      - name: Build Android APK
+        script: |
+          flutter build apk --release
+          
+      - name: Build iOS IPA
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+          flutter build ipa --release
+          
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/ios/ipa/*.ipa
+      
+    publishing:
+      email:
+        recipients:
+          - alonzo.zaldivar.29@gmail.com
+        notify:
+          success: true
+          failure: true
