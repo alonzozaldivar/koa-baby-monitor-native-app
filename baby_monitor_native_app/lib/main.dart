@@ -3995,7 +3995,7 @@ class KoaFeatureCard extends StatelessWidget {
 
     return SizedBox(
       width: (MediaQuery.of(context).size.width - 24 * 2 - 16) / 2,
-      height: 180, // Altura fija para todas las tarjetas
+      height: 200, // Altura fija para todas las tarjetas
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -10014,7 +10014,7 @@ class _CaregiversSectionState extends State<CaregiversSection> {
           )
         else
           SizedBox(
-            height: 90,
+            height: 100,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [

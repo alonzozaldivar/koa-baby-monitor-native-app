@@ -99,6 +99,7 @@ flutter:
     - assets/images/koa_cover.png
     - assets/images/koa_logo.png
     - assets/images/koa_logo.jpg
+    - assets/images/koa_character.png
     - assets/videos/
     - assets/models/
 
