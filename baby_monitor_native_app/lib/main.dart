@@ -13,7 +13,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:local_auth/local_auth.dart';
+import 'services/auth_service.dart';
+import 'services/face_embedding_service.dart';
 import 'package:video_player/video_player.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -923,7 +924,7 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
   int _faceDetectedFrames = 0;
   static const int _requiredFrames = 15;
   bool _hasRegisteredFace = false;
-  final LocalAuthentication _localAuth = LocalAuthentication();
+  List<List<double>> _storedEmbeddings = [];
 
   @override
   void initState() {
@@ -950,31 +951,39 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
       return;
     }
 
-    // Verificar si el dispositivo soporta biometría
-    final bool canCheck = await _localAuth.canCheckBiometrics;
-    final bool isDeviceSupported = await _localAuth.isDeviceSupported();
-
-    if (!canCheck && !isDeviceSupported) {
-      // Dispositivo sin biometría — entrar directo
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _goNext();
-      });
-      return;
+    // Inicializar modelo MobileFaceNet
+    try {
+      await FaceEmbeddingService.instance.initialize();
+    } catch (e) {
+      debugPrint('⚠️ No se pudo cargar FaceEmbeddingService: $e');
     }
 
-    // Verificar si ya registró biometría KOA
-    final prefs = await SharedPreferences.getInstance();
-    _hasRegisteredFace = prefs.getBool('has_biometric_setup') ?? false;
+    // Cargar embeddings del usuario desde Supabase
+    try {
+      final biometrics = await AuthService.getUserFaceBiometrics();
+      _storedEmbeddings = biometrics
+          .where((b) => b['face_encoding']?['vector'] != null)
+          .map((b) => List<double>.from(b['face_encoding']['vector'] as List))
+          .toList();
+      debugPrint('📊 Embeddings cargados: ${_storedEmbeddings.length}');
+    } catch (e) {
+      debugPrint('⚠️ Error cargando embeddings: $e');
+    }
 
-    if (!_hasRegisteredFace) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const FaceRegistrationPage()),
-          );
-        }
-      });
-      return;
+    // Si no hay embeddings → verificar flag local, si tampoco → registro
+    if (_storedEmbeddings.isEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      _hasRegisteredFace = prefs.getBool('has_biometric_setup') ?? false;
+      if (!_hasRegisteredFace) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const FaceRegistrationPage()),
+            );
+          }
+        });
+        return;
+      }
     }
 
     _initializeCamera();
@@ -1100,15 +1109,48 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
     await _cameraController?.stopImageStream();
 
     try {
-      // ✅ Autenticación real con biometría del dispositivo
-      final bool authenticated = await _localAuth.authenticate(
-        localizedReason: 'Verifica tu identidad para acceder a KOA',
-        options: const AuthenticationOptions(
-          biometricOnly: false, // permite PIN si no hay biometría
-          stickyAuth: true,
-          useErrorDialogs: true,
-        ),
-      );
+      // 1. Capturar foto
+      final photo = await _cameraController!.takePicture();
+      final imageBytes = await photo.readAsBytes();
+
+      // 2. Detectar rostro en la foto para bounding box preciso
+      final inputForDetection = InputImage.fromFilePath(photo.path);
+      final detectedFaces = await _faceDetector!.processImage(inputForDetection);
+      final faceBounds =
+          detectedFaces.isNotEmpty ? detectedFaces.first.boundingBox : null;
+
+      // 3. Generar embedding FaceNet
+      final embedding = await FaceEmbeddingService.instance
+          .generateEmbedding(imageBytes, faceBounds);
+
+      if (!mounted) return;
+
+      bool authenticated = false;
+
+      if (embedding != null && _storedEmbeddings.isNotEmpty) {
+        // Comparar con embeddings registrados en Supabase
+        double bestSimilarity = 0.0;
+        const double kThreshold = 0.70;
+
+        for (final stored in _storedEmbeddings) {
+          final sim = FaceEmbeddingService.cosineSimilarity(embedding, stored);
+          debugPrint('🔬 Similitud facial: ${(sim * 100).toStringAsFixed(1)}%');
+          if (sim > bestSimilarity) bestSimilarity = sim;
+          if (sim >= kThreshold) {
+            authenticated = true;
+            break;
+          }
+        }
+        debugPrint(authenticated
+            ? '✅ Rostro autenticado (${(bestSimilarity * 100).toStringAsFixed(1)}%)'
+            : '❌ Rostro rechazado (${(bestSimilarity * 100).toStringAsFixed(1)}%)');
+      } else if (_storedEmbeddings.isEmpty) {
+        // Sin embeddings en Supabase → confiar en flag local
+        authenticated = true;
+        debugPrint('⚠️ Sin embeddings en Supabase, acceso por flag local');
+      } else {
+        debugPrint('❌ No se pudo generar embedding facial');
+      }
 
       if (!mounted) return;
 
@@ -1120,7 +1162,7 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
         await Future.delayed(const Duration(milliseconds: 800));
         if (mounted) _goNext();
       } else {
-        throw Exception('Autenticación denegada por el dispositivo');
+        throw Exception('Rostro no reconocido');
       }
     } catch (e) {
       debugPrint('Error en verificación biométrica: $e');
@@ -1505,12 +1547,38 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
     try {
       await _cameraController!.stopImageStream();
 
-      // ✅ Solo guardamos la bandera de configuración biométrica.
-      // La autenticación real se hace con local_auth (hardware del dispositivo).
+      // 1. Capturar foto
+      final photo = await _cameraController!.takePicture();
+      final imageBytes = await photo.readAsBytes();
+
+      // 2. Detectar cara para bounding box preciso
+      final inputForDetection = InputImage.fromFilePath(photo.path);
+      final detectedFaces =
+          await _faceDetector!.processImage(inputForDetection);
+      if (detectedFaces.isEmpty) {
+        throw Exception('No se detectó rostro en la captura');
+      }
+      final faceBounds = detectedFaces.first.boundingBox;
+
+      // 3. Generar embedding FaceNet
+      await FaceEmbeddingService.instance.initialize();
+      final embedding = await FaceEmbeddingService.instance
+          .generateEmbedding(imageBytes, faceBounds);
+      if (embedding == null) {
+        throw Exception('No se pudo generar el embedding facial');
+      }
+
+      // 4. Guardar embedding en Supabase
+      await AuthService.registerFaceBiometric(
+        faceEncoding: {'vector': embedding},
+      );
+
+      // 5. Flag local de respaldo
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_biometric_setup', true);
 
-      debugPrint('Biometría configurada: has_biometric_setup = true');
+      debugPrint(
+          '✅ Embedding registrado: ${embedding.length} dimensiones → Supabase');
 
       if (mounted) {
         setState(() {
@@ -1527,7 +1595,7 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
         });
       }
     } catch (e) {
-      debugPrint('Error al registrar biometría: $e');
+      debugPrint('Error al registrar embedding facial: $e');
       if (mounted) {
         setState(() => _statusMessage = 'error_capture');
         _startFaceDetection();

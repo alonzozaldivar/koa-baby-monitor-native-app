@@ -59,6 +59,8 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   package_info_plus: ^8.0.0
   dio: ^5.4.0
+  tflite_flutter: ^0.12.1
+  image: ^4.1.7
   flutter_localizations:
     sdk: flutter
 
@@ -96,6 +98,7 @@ flutter:
   assets:
     - assets/images/koa_cover.png
     - assets/videos/
+    - assets/models/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
