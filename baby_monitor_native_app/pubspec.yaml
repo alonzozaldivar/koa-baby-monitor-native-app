@@ -59,7 +59,6 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   package_info_plus: ^8.0.0
   dio: ^5.4.0
-  flutter_local_notifications: ^17.2.3
   flutter_localizations:
     sdk: flutter
 
