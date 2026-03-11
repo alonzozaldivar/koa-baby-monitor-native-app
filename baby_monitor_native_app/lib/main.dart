@@ -1053,6 +1053,7 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
           });
 
           if (_faceDetectedFrames >= _requiredFrames && !_isVerifying) {
+            _isVerifying = true; // Guard síncrono para evitar llamadas múltiples
             _verifyFace();
           }
         } else {
@@ -1101,12 +1102,15 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
   }
 
   Future<void> _verifyFace() async {
-    setState(() {
-      _isVerifying = true;
-      _statusMessage = 'verifying';
-    });
+    // _isVerifying ya fue seteado síncronamente en el stream callback
+    setState(() => _statusMessage = 'verifying');
 
-    await _cameraController?.stopImageStream();
+    try {
+      await _cameraController?.stopImageStream();
+    } catch (_) {}
+
+    // Dar tiempo al stream para cerrarse completamente antes de capturar
+    await Future.delayed(const Duration(milliseconds: 350));
 
     try {
       // 1. Capturar foto
@@ -1138,7 +1142,7 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
       if (embedding != null && _storedEmbeddings.isNotEmpty) {
         // ✅ Modo real: comparar embedding con los guardados en Supabase
         double bestSimilarity = 0.0;
-        const double kThreshold = 0.70;
+        const double kThreshold = 0.60; // Umbral permisivo para mayor robustez
         for (final stored in _storedEmbeddings) {
           final sim = FaceEmbeddingService.cosineSimilarity(embedding, stored);
           debugPrint('🔬 Similitud facial: ${(sim * 100).toStringAsFixed(1)}%');
