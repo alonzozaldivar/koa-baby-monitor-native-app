@@ -958,32 +958,49 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
       debugPrint('⚠️ No se pudo cargar FaceEmbeddingService: $e');
     }
 
-    // Cargar embeddings del usuario desde Supabase
+    // 1. Intentar cargar embeddings desde Supabase
     try {
       final biometrics = await AuthService.getUserFaceBiometrics();
       _storedEmbeddings = biometrics
           .where((b) => b['face_encoding']?['vector'] != null)
           .map((b) => List<double>.from(b['face_encoding']['vector'] as List))
           .toList();
-      debugPrint('📊 Embeddings cargados: ${_storedEmbeddings.length}');
+      debugPrint('📊 Embeddings Supabase: ${_storedEmbeddings.length}');
     } catch (e) {
-      debugPrint('⚠️ Error cargando embeddings: $e');
+      debugPrint('⚠️ Supabase no disponible: $e');
     }
 
-    // Si no hay embeddings → verificar flag local, si tampoco → registro
+    // 2. Si Supabase vacío, cargar embedding guardado localmente (fuente principal)
+    final prefs = await SharedPreferences.getInstance();
     if (_storedEmbeddings.isEmpty) {
-      final prefs = await SharedPreferences.getInstance();
-      _hasRegisteredFace = prefs.getBool('has_biometric_setup') ?? false;
-      if (!_hasRegisteredFace) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const FaceRegistrationPage()),
-            );
-          }
-        });
-        return;
+      try {
+        final localJson = prefs.getString('face_embedding_local');
+        if (localJson != null) {
+          final localVec = List<double>.from(jsonDecode(localJson) as List);
+          _storedEmbeddings = [localVec];
+          debugPrint('📱 Embedding local cargado (${localVec.length} dims)');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error cargando embedding local: $e');
       }
+    }
+
+    // 3. Si aún no hay embeddings, decidir qué hacer
+    if (_storedEmbeddings.isEmpty) {
+      _hasRegisteredFace = prefs.getBool('has_biometric_setup') ?? false;
+      if (_hasRegisteredFace) {
+        // Registrado con código antiguo (sin embedding guardado) → forzar re-registro
+        await prefs.remove('has_biometric_setup');
+        debugPrint('🔄 Re-registro requerido: sin embedding almacenado');
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const FaceRegistrationPage()),
+          );
+        }
+      });
+      return;
     }
 
     _initializeCamera();
@@ -1140,9 +1157,9 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
       bool authenticated = false;
 
       if (embedding != null && _storedEmbeddings.isNotEmpty) {
-        // ✅ Modo real: comparar embedding con los guardados en Supabase
+        // ✅ Comparación real: embedding vs embedding guardado
         double bestSimilarity = 0.0;
-        const double kThreshold = 0.60; // Umbral permisivo para mayor robustez
+        const double kThreshold = 0.60;
         for (final stored in _storedEmbeddings) {
           final sim = FaceEmbeddingService.cosineSimilarity(embedding, stored);
           debugPrint('🔬 Similitud facial: ${(sim * 100).toStringAsFixed(1)}%');
@@ -1150,14 +1167,17 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
           if (sim >= kThreshold) { authenticated = true; break; }
         }
         debugPrint(authenticated
-            ? '✅ Autenticado (${(bestSimilarity * 100).toStringAsFixed(1)}%)'
-            : '❌ Rechazado (${(bestSimilarity * 100).toStringAsFixed(1)}%)');
+            ? '✅ Acceso concedido (${(bestSimilarity * 100).toStringAsFixed(1)}%)'
+            : '❌ Acceso denegado (${(bestSimilarity * 100).toStringAsFixed(1)}%)');
+      } else if (embedding == null && _storedEmbeddings.isNotEmpty) {
+        // TFLite falló en este intento pero hay embedding guardado → pedir reintento
+        throw Exception('No se pudo analizar el rostro, intenta de nuevo');
       } else {
-        // ⚠️ Modo fallback: aceptar si tiene flag local de registro
-        // (TFLite no disponible o no hay embeddings en Supabase aún)
+        // Sin embeddings almacenados: TFLite nunca funcionó en este dispositivo
+        // Modo fallback solo para este caso excepcional
         final prefs = await SharedPreferences.getInstance();
         authenticated = prefs.getBool('has_biometric_setup') ?? false;
-        debugPrint('⚠️ Modo fallback: authenticated=$authenticated');
+        debugPrint('⚠️ Sin embedding guardado — fallback: $authenticated');
       }
 
       if (!mounted) return;
@@ -1580,22 +1600,28 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
         debugPrint('⚠️ FaceEmbeddingService no disponible: $e');
       }
 
-      // 4. Guardar flag local SIEMPRE (registro garantizado sin importar TFLite)
+      // 4. Guardar siempre el flag de registro
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_biometric_setup', true);
 
-      // 5. Si hay embedding, subir a Supabase (también opcional)
+      // 5. Guardar embedding localmente (CRÍTICO para comparación real)
       if (embedding != null) {
+        await prefs.setString('face_embedding_local', jsonEncode(embedding));
+        debugPrint('✅ Embedding guardado localmente (${embedding.length} dims)');
+
+        // También subir a Supabase para acceso cross-device (opcional)
         try {
           await AuthService.registerFaceBiometric(
             faceEncoding: {'vector': embedding},
           );
-          debugPrint('✅ Embedding facial guardado en Supabase');
+          debugPrint('✅ Embedding también guardado en Supabase');
         } catch (e) {
-          debugPrint('⚠️ Supabase: $e');
+          debugPrint('⚠️ Supabase no disponible (no crítico): $e');
         }
       } else {
-        debugPrint('⚠️ Sin embedding → modo flag local (TFLite no disponible)');
+        // TFLite falló — la próxima apertura de la app forzará re-registro
+        await prefs.remove('face_embedding_local');
+        debugPrint('⚠️ TFLite no generó embedding, se pedirá re-registro');
       }
 
       if (mounted) {
