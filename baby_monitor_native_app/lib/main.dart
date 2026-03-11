@@ -4112,6 +4112,10 @@ class _FoodPageState extends State<FoodPage> {
   String? _feedingType;
   final List<FeedingEntry> _entries = [];
   int _intervalHours = 3;
+
+  // Recordatorio manual
+  TimeOfDay _reminderTime = TimeOfDay.now();
+  String? _scheduledReminderLabel; // texto de confirmación visible al usuario
   
   // Datos del bebé
   int _babyAgeInMonths = 0;
@@ -4260,6 +4264,59 @@ class _FoodPageState extends State<FoodPage> {
       setState(() {
         _selectedTime = picked;
       });
+    }
+  }
+
+  Future<void> _pickReminderTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _reminderTime,
+      helpText: 'Hora del recordatorio',
+    );
+    if (picked != null) {
+      setState(() {
+        _reminderTime = picked;
+        _scheduledReminderLabel = null; // limpiar confirmación previa
+      });
+    }
+  }
+
+  Future<void> _scheduleCustomReminder() async {
+    final now = DateTime.now();
+    final scheduledDate = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      _reminderTime.hour,
+      _reminderTime.minute,
+    );
+
+    final success = await NotificationService.scheduleCustomFeedingReminder(
+      scheduledTime: scheduledDate,
+      babyName: _babyName,
+    );
+
+    if (!mounted) return;
+
+    if (success) {
+      final h = _reminderTime.hour.toString().padLeft(2, '0');
+      final m = _reminderTime.minute.toString().padLeft(2, '0');
+      setState(() => _scheduledReminderLabel = '🔔 Recordatorio programado para las $h:$m');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Recordatorio programado para las $h:$m'),
+          backgroundColor: const Color(0xFF4F7A4A),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Esa hora ya pasó. Elige una hora futura.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -4462,6 +4519,124 @@ class _FoodPageState extends State<FoodPage> {
                     ),
                   ),
                   
+                // ── Programar recordatorio manual ──
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.alarm_add, color: Color(0xFF4F7A4A), size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Programar recordatorio',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF4F7A4A),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Recíbe una notificación a la hora exacta que elijas.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF6E8F6A)),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          // Selector de hora
+                          Expanded(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: _pickReminderTime,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF5FFF3),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFB6D7A8),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      '${_reminderTime.hour.toString().padLeft(2, '0')}:${_reminderTime.minute.toString().padLeft(2, '0')}',
+                                      style: const TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF355334),
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.access_time,
+                                      color: Color(0xFF4F7A4A),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Botón programar
+                          ElevatedButton.icon(
+                            onPressed: _scheduleCustomReminder,
+                            icon: const Icon(Icons.notifications_active, size: 18),
+                            label: const Text('Recordar'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF4F7A4A),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_scheduledReminderLabel != null) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F5E9),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            _scheduledReminderLabel!,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF2E7D32),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
                 // Formulario de registro
                 Container(
                   padding: const EdgeInsets.all(16),

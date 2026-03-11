@@ -247,6 +247,54 @@ class NotificationService {
     return id;
   }
 
+  /// Programa un recordatorio manual a una hora específica elegida por el usuario.
+  /// Usa ID fijo 888888 para no interferir con el cálculo automático.
+  static Future<bool> scheduleCustomFeedingReminder({
+    required DateTime scheduledTime,
+    required String babyName,
+  }) async {
+    if (!_initialized) await initialize();
+
+    const id = 888888;
+
+    if (scheduledTime.isBefore(DateTime.now())) {
+      debugPrint('⚠️ Recordatorio personalizado en el pasado, no se programa');
+      return false;
+    }
+
+    // Cancelar recordatorio anterior si existía
+    await _notifications.cancel(id);
+
+    await _notifications.zonedSchedule(
+      id,
+      '🍼 Recordatorio de toma — $babyName',
+      'Es hora de alimentar a $babyName',
+      tz.TZDateTime.from(scheduledTime, tz.local),
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'feeding_reminder_channel',
+          'Recordatorios de toma',
+          channelDescription: 'Recordatorios manuales de alimentación',
+          importance: Importance.max,
+          priority: Priority.max,
+          icon: '@mipmap/ic_launcher',
+          playSound: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+
+    debugPrint('✅ Recordatorio personalizado programado: $scheduledTime');
+    return true;
+  }
+
   /// Cancela una notificación por ID
   static Future<void> cancelNotification(int id) async {
     await _notifications.cancel(id);
