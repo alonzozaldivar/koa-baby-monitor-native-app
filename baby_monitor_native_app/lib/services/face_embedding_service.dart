@@ -10,6 +10,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;
 
@@ -33,7 +34,15 @@ class FaceEmbeddingService {
     if (_isInitialized && _interpreter != null) return;
 
     try {
-      _interpreter = await Interpreter.fromAsset('models/mobilefacenet.tflite');
+      // Cargar bytes directamente via rootBundle (más confiable que fromAsset)
+      final byteData = await rootBundle.load('assets/models/mobilefacenet.tflite');
+      final bytes = byteData.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      );
+      debugPrint('📦 Modelo cargado: ${bytes.length} bytes');
+
+      _interpreter = Interpreter.fromBuffer(bytes);
 
       // Detectar tamaño del embedding dinámicamente desde el modelo
       final outputShape = _interpreter!.getOutputTensor(0).shape;
