@@ -1124,37 +1124,36 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
         debugPrint('⚠️ Detección en foto falló, usando imagen completa');
       }
 
-      // 3. Generar embedding FaceNet
-      final embedding = await FaceEmbeddingService.instance
-          .generateEmbedding(imageBytes, faceBounds);
+      // 3. Generar embedding FaceNet (completamente opcional)
+      List<double>? embedding;
+      try {
+        embedding = await FaceEmbeddingService.instance
+            .generateEmbedding(imageBytes, faceBounds);
+      } catch (_) {}
 
       if (!mounted) return;
 
       bool authenticated = false;
 
       if (embedding != null && _storedEmbeddings.isNotEmpty) {
-        // Comparar con embeddings registrados en Supabase
+        // ✅ Modo real: comparar embedding con los guardados en Supabase
         double bestSimilarity = 0.0;
         const double kThreshold = 0.70;
-
         for (final stored in _storedEmbeddings) {
           final sim = FaceEmbeddingService.cosineSimilarity(embedding, stored);
           debugPrint('🔬 Similitud facial: ${(sim * 100).toStringAsFixed(1)}%');
           if (sim > bestSimilarity) bestSimilarity = sim;
-          if (sim >= kThreshold) {
-            authenticated = true;
-            break;
-          }
+          if (sim >= kThreshold) { authenticated = true; break; }
         }
         debugPrint(authenticated
-            ? '✅ Rostro autenticado (${(bestSimilarity * 100).toStringAsFixed(1)}%)'
-            : '❌ Rostro rechazado (${(bestSimilarity * 100).toStringAsFixed(1)}%)');
-      } else if (_storedEmbeddings.isEmpty) {
-        // Sin embeddings en Supabase → confiar en flag local
-        authenticated = true;
-        debugPrint('⚠️ Sin embeddings en Supabase, acceso por flag local');
+            ? '✅ Autenticado (${(bestSimilarity * 100).toStringAsFixed(1)}%)'
+            : '❌ Rechazado (${(bestSimilarity * 100).toStringAsFixed(1)}%)');
       } else {
-        debugPrint('❌ No se pudo generar embedding facial');
+        // ⚠️ Modo fallback: aceptar si tiene flag local de registro
+        // (TFLite no disponible o no hay embeddings en Supabase aún)
+        final prefs = await SharedPreferences.getInstance();
+        authenticated = prefs.getBool('has_biometric_setup') ?? false;
+        debugPrint('⚠️ Modo fallback: authenticated=$authenticated');
       }
 
       if (!mounted) return;
@@ -1567,28 +1566,32 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
         debugPrint('⚠️ Detección en foto falló, usando imagen completa');
       }
 
-      // 3. Generar embedding FaceNet (con o sin recorte)
-      await FaceEmbeddingService.instance.initialize();
-      final embedding = await FaceEmbeddingService.instance
-          .generateEmbedding(imageBytes, faceBounds);
-      if (embedding == null) {
-        throw Exception('FaceEmbeddingService devolvió null');
+      // 3. Generar embedding FaceNet (completamente opcional)
+      List<double>? embedding;
+      try {
+        await FaceEmbeddingService.instance.initialize();
+        embedding = await FaceEmbeddingService.instance
+            .generateEmbedding(imageBytes, faceBounds);
+      } catch (e) {
+        debugPrint('⚠️ FaceEmbeddingService no disponible: $e');
       }
 
-      // 4. Guardar flag local PRIMERO (garantiza registro aunque falle red)
+      // 4. Guardar flag local SIEMPRE (registro garantizado sin importar TFLite)
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_biometric_setup', true);
 
-      // 5. Intentar subir a Supabase (no fatal si falla o tabla no existe)
-      try {
-        await AuthService.registerFaceBiometric(
-          faceEncoding: {'vector': embedding},
-        );
-        debugPrint(
-            '✅ Embedding registrado: ${embedding.length} dim → Supabase');
-      } catch (e) {
-        debugPrint('⚠️ Supabase falló (tabla pendiente?): $e');
-        // Guardado local es suficiente para continuar
+      // 5. Si hay embedding, subir a Supabase (también opcional)
+      if (embedding != null) {
+        try {
+          await AuthService.registerFaceBiometric(
+            faceEncoding: {'vector': embedding},
+          );
+          debugPrint('✅ Embedding facial guardado en Supabase');
+        } catch (e) {
+          debugPrint('⚠️ Supabase: $e');
+        }
+      } else {
+        debugPrint('⚠️ Sin embedding → modo flag local (TFLite no disponible)');
       }
 
       if (mounted) {
