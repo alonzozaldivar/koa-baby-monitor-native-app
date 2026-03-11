@@ -37,6 +37,9 @@ import 'services/notification_service.dart';
 // Pantallas de autenticación
 import 'screens/welcome_screen.dart';
 
+// Modelos
+import 'models/app_models.dart';
+
 // Datos de referencia OMS
 import 'data/who_standards.dart';
 import 'data/vaccine_schedule.dart';
@@ -270,6 +273,21 @@ class AppState extends ChangeNotifier {
       'retry_connection': {'es': 'Reintentar conexión', 'en': 'Retry connection'},
       'watching_baby': {'es': 'Vigilando a tu bebé', 'en': 'Watching your baby'},
       'tap_to_configure': {'es': 'Toca para configurar tu cámara', 'en': 'Tap to configure your camera'},
+      // Caregivers
+      'caregivers': {'es': 'Cuidadores', 'en': 'Caregivers'},
+      'add_caregiver': {'es': 'Agregar cuidador', 'en': 'Add caregiver'},
+      'caregiver_name': {'es': 'Nombre del cuidador', 'en': 'Caregiver name'},
+      'caregiver_role': {'es': 'Rol / Relación', 'en': 'Role / Relation'},
+      'no_caregivers': {'es': 'Agrega un cuidador para compartir el cuidado', 'en': 'Add a caregiver to share the care'},
+      'delete_caregiver': {'es': 'Eliminar cuidador', 'en': 'Delete caregiver'},
+      'delete_caregiver_confirm': {'es': '¿Eliminar a este cuidador?', 'en': 'Delete this caregiver?'},
+      'caregiver_added': {'es': 'Cuidador agregado', 'en': 'Caregiver added'},
+      'caregiver_deleted': {'es': 'Cuidador eliminado', 'en': 'Caregiver deleted'},
+      'role_mom': {'es': 'Mamá', 'en': 'Mom'},
+      'role_dad': {'es': 'Papá', 'en': 'Dad'},
+      'role_grandparent': {'es': 'Abuelo/a', 'en': 'Grandparent'},
+      'role_nanny': {'es': 'Niñera', 'en': 'Nanny'},
+      'role_other': {'es': 'Otro', 'en': 'Other'},
     };
     return translations[key]?[isSpanish ? 'es' : 'en'] ?? key;
   }
@@ -2044,6 +2062,8 @@ class HomeContent extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 8),
+                    const CaregiversSection(),
+                    const SizedBox(height: 24),
                     Text(
                       appState.tr('main_sections'),
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
@@ -9459,6 +9479,626 @@ class _MilestoneDetailPage extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// CAREGIVERS SECTION - Sección de cuidadores en la pantalla de inicio
+// ============================================================================
+class CaregiversSection extends StatefulWidget {
+  const CaregiversSection({super.key});
+
+  @override
+  State<CaregiversSection> createState() => _CaregiversSectionState();
+}
+
+class _CaregiversSectionState extends State<CaregiversSection> {
+  List<Caregiver> _caregivers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCaregivers();
+  }
+
+  Future<void> _loadCaregivers() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonStr = prefs.getString('caregivers_json');
+    if (jsonStr != null && jsonStr.isNotEmpty) {
+      try {
+        final list = jsonDecode(jsonStr) as List<dynamic>;
+        setState(() {
+          _caregivers = list
+              .map((e) => Caregiver.fromJson(e as Map<String, dynamic>))
+              .toList();
+        });
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _saveCaregivers() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'caregivers_json',
+      jsonEncode(_caregivers.map((c) => c.toJson()).toList()),
+    );
+  }
+
+  void _showAddCaregiver() async {
+    final result = await showModalBottomSheet<Caregiver>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const AddCaregiverBottomSheet(),
+    );
+    if (result != null) {
+      setState(() => _caregivers.add(result));
+      await _saveCaregivers();
+      if (mounted) {
+        final appState = Provider.of<AppState>(context, listen: false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(appState.tr('caregiver_added'))),
+        );
+      }
+    }
+  }
+
+  void _showCaregiverOptions(Caregiver caregiver) {
+    final appState = Provider.of<AppState>(context, listen: false);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF252540) : Colors.white,
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              caregiver.name,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : const Color(0xFF4F4A4A),
+              ),
+            ),
+            Text(
+              caregiver.role,
+              style: TextStyle(
+                fontSize: 14,
+                color: isDark ? Colors.white54 : Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: Text(
+                appState.tr('delete_caregiver'),
+                style: const TextStyle(color: Colors.red),
+              ),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (d) => AlertDialog(
+                    title: Text(appState.tr('delete_caregiver')),
+                    content:
+                        Text(appState.tr('delete_caregiver_confirm')),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(d, false),
+                        child: Text(appState.tr('cancel')),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.pop(d, true),
+                        child: Text(appState.tr('delete')),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true && mounted) {
+                  setState(() =>
+                      _caregivers.removeWhere((c) => c.id == caregiver.id));
+                  await _saveCaregivers();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content:
+                              Text(appState.tr('caregiver_deleted'))),
+                    );
+                  }
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = Provider.of<AppState>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              appState.tr('caregivers'),
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontSize: 22,
+                  ),
+            ),
+            TextButton.icon(
+              onPressed: _showAddCaregiver,
+              icon: const Icon(Icons.add, size: 18),
+              label: Text(appState.tr('add_caregiver')),
+              style: TextButton.styleFrom(
+                foregroundColor: isDark
+                    ? const Color(0xFFB6D7A8)
+                    : const Color(0xFF4F7A4A),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_caregivers.isEmpty)
+          GestureDetector(
+            onTap: _showAddCaregiver,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                  vertical: 16, horizontal: 20),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF252540)
+                    : const Color(0xFFEBF7E8),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDark
+                      ? const Color(0xFFB6D7A8).withValues(alpha: 0.3)
+                      : const Color(0xFFB6D7A8),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFFB6D7A8).withValues(alpha: 0.15)
+                          : const Color(0xFFB6D7A8).withValues(alpha: 0.4),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.person_add_alt_1,
+                      color: Color(0xFF4F7A4A),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      appState.tr('no_caregivers'),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDark
+                            ? Colors.white54
+                            : const Color(0xFF6E8F6A),
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    color:
+                        isDark ? Colors.white38 : const Color(0xFFB6D7A8),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          SizedBox(
+            height: 90,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                ..._caregivers.map((c) => _buildCaregiverAvatar(c, isDark)),
+                _buildAddButton(isDark),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCaregiverAvatar(Caregiver c, bool isDark) {
+    Uint8List? photoBytes;
+    if (c.photoBase64 != null && c.photoBase64!.isNotEmpty) {
+      try {
+        photoBytes = base64Decode(c.photoBase64!);
+      } catch (_) {}
+    }
+
+    return GestureDetector(
+      onTap: () => _showCaregiverOptions(c),
+      child: Container(
+        width: 70,
+        margin: const EdgeInsets.only(right: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 28,
+              backgroundColor: isDark
+                  ? const Color(0xFF4F7A4A)
+                  : const Color(0xFFB6D7A8),
+              backgroundImage:
+                  photoBytes != null ? MemoryImage(photoBytes) : null,
+              child: photoBytes == null
+                  ? Text(
+                      c.name.isNotEmpty
+                          ? c.name[0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              c.name.split(' ').first,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color:
+                    isDark ? Colors.white70 : const Color(0xFF4F4A4A),
+              ),
+            ),
+            Text(
+              c.role,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                color: isDark
+                    ? Colors.white38
+                    : const Color(0xFF6E8F6A),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddButton(bool isDark) {
+    return GestureDetector(
+      onTap: _showAddCaregiver,
+      child: SizedBox(
+        width: 70,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 28,
+              backgroundColor: isDark
+                  ? const Color(0xFF252540)
+                  : const Color(0xFFEBF7E8),
+              child: Icon(
+                Icons.add,
+                color: isDark
+                    ? const Color(0xFFB6D7A8)
+                    : const Color(0xFF4F7A4A),
+                size: 26,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Agregar',
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark
+                    ? const Color(0xFFB6D7A8)
+                    : const Color(0xFF4F7A4A),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// ADD CAREGIVER BOTTOM SHEET
+// ============================================================================
+class AddCaregiverBottomSheet extends StatefulWidget {
+  const AddCaregiverBottomSheet({super.key});
+
+  @override
+  State<AddCaregiverBottomSheet> createState() =>
+      _AddCaregiverBottomSheetState();
+}
+
+class _AddCaregiverBottomSheetState extends State<AddCaregiverBottomSheet> {
+  final _nameController = TextEditingController();
+  String _selectedRole = 'Mamá';
+  Uint8List? _photoBytes;
+  final ImagePicker _picker = ImagePicker();
+
+  final List<Map<String, String>> _roles = [
+    {'key': 'role_mom', 'label': 'Mamá'},
+    {'key': 'role_dad', 'label': 'Papá'},
+    {'key': 'role_grandparent', 'label': 'Abuelo/a'},
+    {'key': 'role_nanny', 'label': 'Niñera'},
+    {'key': 'role_other', 'label': 'Otro'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Inicializar rol traducido
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final appState = Provider.of<AppState>(context, listen: false);
+        setState(() {
+          _selectedRole = appState.tr('role_mom');
+          for (final r in _roles) {
+            r['label'] = appState.tr(r['key']!);
+          }
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickPhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Tomar foto'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Elegir de galería'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    try {
+      final picked =
+          await _picker.pickImage(source: source, imageQuality: 75);
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      setState(() => _photoBytes = bytes);
+    } catch (_) {}
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+    final caregiver = Caregiver(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name,
+      role: _selectedRole,
+      photoBase64:
+          _photoBytes != null ? base64Encode(_photoBytes!) : null,
+    );
+    Navigator.of(context).pop(caregiver);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = Provider.of<AppState>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF252540) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.fromLTRB(24, 20, 24, 24 + bottomInset),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Title
+          Text(
+            appState.tr('add_caregiver'),
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: isDark ? Colors.white : const Color(0xFF4F4A4A),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Photo + name row
+          Row(
+            children: [
+              GestureDetector(
+                onTap: _pickPhoto,
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 32,
+                      backgroundColor: isDark
+                          ? const Color(0xFF4F7A4A)
+                          : const Color(0xFFB6D7A8),
+                      backgroundImage: _photoBytes != null
+                          ? MemoryImage(_photoBytes!)
+                          : null,
+                      child: _photoBytes == null
+                          ? const Icon(Icons.person,
+                              size: 32, color: Colors.white)
+                          : null,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF4F7A4A),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.camera_alt,
+                            size: 13, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextField(
+                  controller: _nameController,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    hintText: appState.tr('caregiver_name'),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                          color: isDark
+                              ? Colors.white24
+                              : Colors.grey.shade300),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                          color: Color(0xFF4F7A4A), width: 2),
+                    ),
+                    filled: true,
+                    fillColor: isDark
+                        ? const Color(0xFF1A1A2E)
+                        : const Color(0xFFF5FFF3),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Role label
+          Text(
+            appState.tr('caregiver_role'),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white70 : const Color(0xFF4F4A4A),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Role chips
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _roles.map((r) {
+              final label = r['label']!;
+              final selected = _selectedRole == label;
+              return ChoiceChip(
+                label: Text(label),
+                selected: selected,
+                onSelected: (_) => setState(() => _selectedRole = label),
+                selectedColor: const Color(0xFF4F7A4A),
+                labelStyle: TextStyle(
+                  color: selected ? Colors.white : null,
+                  fontWeight:
+                      selected ? FontWeight.w600 : FontWeight.normal,
+                ),
+                backgroundColor:
+                    isDark ? const Color(0xFF1A1A2E) : null,
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+
+          // Submit button
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4F7A4A),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+              ),
+              child: Text(
+                appState.tr('save'),
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ),
           ),

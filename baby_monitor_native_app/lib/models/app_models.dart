@@ -357,6 +357,37 @@ class CameraConfigModel {
 }
 
 // ============================================================================
+// CAREGIVER MODEL
+// ============================================================================
+class Caregiver {
+  final String id;
+  final String name;
+  final String role; // 'mamá', 'papá', 'abuelo/a', 'niñera', 'otro'
+  final String? photoBase64;
+
+  Caregiver({
+    required this.id,
+    required this.name,
+    required this.role,
+    this.photoBase64,
+  });
+
+  factory Caregiver.fromJson(Map<String, dynamic> json) => Caregiver(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        role: json['role'] as String,
+        photoBase64: json['photo_base64'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'role': role,
+        'photo_base64': photoBase64,
+      };
+}
+
+// ============================================================================
 // FACE BIOMETRIC MODEL
 // ============================================================================
 class FaceBiometric {
