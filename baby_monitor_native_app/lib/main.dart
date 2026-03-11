@@ -34,6 +34,8 @@ import 'config/supabase_client.dart';
 // Servicios personalizados
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
+import 'services/subscription_service.dart';
+import 'screens/premium_paywall_page.dart';
 
 // Pantallas de autenticación
 import 'screens/welcome_screen.dart';
@@ -1954,6 +1956,7 @@ class MainNavigationPage extends StatefulWidget {
 
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int _currentIndex = 0;
+  bool _isPremium = false;
 
   final List<Widget> _pages = const [
     HomeContent(),
@@ -1961,6 +1964,24 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     StatsPage(),
     SettingsPage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPremiumState();
+  }
+
+  Future<void> _loadPremiumState() async {
+    final premium = await SubscriptionService.isPremium();
+    if (mounted) setState(() => _isPremium = premium);
+  }
+
+  Future<void> _openPaywall() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const PremiumPaywallPage()),
+    );
+    if (result == true) _loadPremiumState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2002,16 +2023,38 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final activeColor = isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F7A4A);
     final inactiveColor = isDark ? Colors.grey[500] : const Color(0xFFB0B0B0);
+    final bool isLockedTab = (index == 1 || index == 2) && !_isPremium;
 
     return InkWell(
-      onTap: () => setState(() => _currentIndex = index),
+      onTap: () {
+        if (isLockedTab) {
+          _openPaywall();
+        } else {
+          setState(() => _currentIndex = index);
+        }
+      },
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: isActive ? activeColor : inactiveColor, size: 24),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(icon, color: isActive ? activeColor : inactiveColor, size: 24),
+                if (isLockedTab)
+                  Positioned(
+                    top: -4,
+                    right: -6,
+                    child: Icon(
+                      Icons.lock_rounded,
+                      size: 12,
+                      color: Colors.orange[700],
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 2),
             Text(
               label,
@@ -2031,8 +2074,33 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 // ============================================================================
 // HOME CONTENT - Contenido de la página de inicio
 // ============================================================================
-class HomeContent extends StatelessWidget {
+class HomeContent extends StatefulWidget {
   const HomeContent({super.key});
+
+  @override
+  State<HomeContent> createState() => _HomeContentState();
+}
+
+class _HomeContentState extends State<HomeContent> {
+  bool _isPremium = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPremiumState();
+  }
+
+  Future<void> _loadPremiumState() async {
+    final premium = await SubscriptionService.isPremium();
+    if (mounted) setState(() => _isPremium = premium);
+  }
+
+  Future<void> _openPaywall() async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const PremiumPaywallPage()),
+    );
+    if (result == true) _loadPremiumState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2059,7 +2127,77 @@ class HomeContent extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 8),
-                    const CaregiversSection(),
+                    // Cuidadores — funcionalidad Premium
+                    if (_isPremium)
+                      const CaregiversSection()
+                    else
+                      InkWell(
+                        onTap: _openPaywall,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF252540)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isDark
+                                  ? Colors.grey[700]!
+                                  : Colors.grey[200]!,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.people_outline,
+                                color: isDark
+                                    ? Colors.grey[400]
+                                    : Colors.grey[600],
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                appState.tr('caregivers'),
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark
+                                      ? Colors.grey[400]
+                                      : Colors.grey[600],
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4F7A4A)
+                                      .withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.lock_rounded,
+                                        size: 14,
+                                        color: Color(0xFF4F7A4A)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Premium',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF4F7A4A),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 24),
                     Text(
                       appState.tr('main_sections'),
@@ -2086,11 +2224,14 @@ class HomeContent extends StatelessWidget {
                           icon: Icons.videocam,
                           title: appState.tr('camera'),
                           description: appState.tr('camera_desc'),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const CameraMonitorPage()),
-                            );
-                          },
+                          isLocked: !_isPremium,
+                          onTap: _isPremium
+                              ? () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            const CameraMonitorPage()),
+                                  )
+                              : _openPaywall,
                         ),
                         KoaFeatureCard(
                           icon: Icons.favorite,
@@ -2098,7 +2239,8 @@ class HomeContent extends StatelessWidget {
                           description: appState.tr('health_desc'),
                           onTap: () {
                             Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const HealthPage()),
+                              MaterialPageRoute(
+                                  builder: (_) => const HealthPage()),
                             );
                           },
                         ),
@@ -2120,9 +2262,25 @@ class HomeContent extends StatelessWidget {
                           description: appState.tr('sleep_desc'),
                           onTap: () {
                             Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const SleepPage()),
+                              MaterialPageRoute(
+                                  builder: (_) => const SleepPage()),
                             );
                           },
+                        ),
+                        KoaFeatureCard(
+                          icon: Icons.phone,
+                          title: 'Llamar al Pediatra',
+                          description:
+                              'Contacta al medico de tu bebe directamente.',
+                          isLocked: !_isPremium,
+                          onTap: _isPremium
+                              ? () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const HealthPage(initialTab: 4),
+                                    ),
+                                  )
+                              : _openPaywall,
                         ),
                       ],
                     ),
@@ -3201,8 +3359,26 @@ class _LegendItem extends StatelessWidget {
 // ============================================================================
 // SETTINGS PAGE - Página de ajustes
 // ============================================================================
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  bool _isPremium = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPremiumState();
+  }
+
+  Future<void> _loadPremiumState() async {
+    final premium = await SubscriptionService.isPremium();
+    if (mounted) setState(() => _isPremium = premium);
+  }
 
   Future<void> _logout(BuildContext context) async {
     final appState = Provider.of<AppState>(context, listen: false);
@@ -3317,6 +3493,123 @@ class SettingsPage extends StatelessWidget {
                         activeColor: const Color(0xFF4F7A4A),
                       ),
                       onTap: () => appState.setLocale(const Locale('en')),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Sección Mi Plan
+                    const _SectionTitle(title: 'Mi Plan'),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      margin: const EdgeInsets.only(bottom: 4),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF252540)
+                            : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                _isPremium
+                                    ? Icons.star_rounded
+                                    : Icons.star_border_rounded,
+                                color: _isPremium
+                                    ? const Color(0xFF4F7A4A)
+                                    : Colors.grey,
+                                size: 24,
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                _isPremium ? 'Plan Premium' : 'Plan Gratuito',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: _isPremium
+                                      ? const Color(0xFF4F7A4A)
+                                      : (isDark
+                                          ? Colors.white
+                                          : const Color(0xFF4F4A4A)),
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _isPremium
+                                      ? const Color(0xFF4F7A4A)
+                                          .withOpacity(0.15)
+                                      : Colors.grey.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  _isPremium ? 'Activo' : 'Gratis',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: _isPremium
+                                        ? const Color(0xFF4F7A4A)
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (!_isPremium) ...[                            
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () async {
+                                  final result =
+                                      await Navigator.of(context).push<bool>(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const PremiumPaywallPage(),
+                                    ),
+                                  );
+                                  if (result == true) _loadPremiumState();
+                                },
+                                icon: const Icon(Icons.star_rounded, size: 18),
+                                label: const Text('Mejorar a Premium'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4F7A4A),
+                                  foregroundColor: Colors.white,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (_isPremium) ...[                            
+                            const SizedBox(height: 8),
+                            Text(
+                              'Tienes acceso completo a todas las funciones de KOA.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark
+                                    ? Colors.white54
+                                    : Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
 
                     const SizedBox(height: 24),
@@ -3955,12 +4248,14 @@ class KoaFeatureCard extends StatelessWidget {
     required this.title,
     required this.description,
     required this.onTap,
+    this.isLocked = false,
   });
 
   final IconData icon;
   final String title;
   final String description;
   final VoidCallback onTap;
+  final bool isLocked;
 
   // Colores pastel adorables para cada tarjeta
   static final List<Map<String, Color>> _cuteColors = [
@@ -3995,96 +4290,138 @@ class KoaFeatureCard extends StatelessWidget {
 
     return SizedBox(
       width: (MediaQuery.of(context).size.width - 24 * 2 - 16) / 2,
-      height: 200, // Altura fija para todas las tarjetas
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(24),
-          onTap: onTap,
-          child: Container(
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF2A2A40) : colors['bg'],
+      height: 200,
+      child: Stack(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: isDark ? const Color(0xFFB6D7A8) : colors['border']!,
-                width: 3,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: (isDark ? colors['border']! : colors['border']!).withOpacity(0.2),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6),
-                  spreadRadius: 0,
-                ),
-                BoxShadow(
-                  color: Colors.white.withOpacity(isDark ? 0.05 : 0.5),
-                  blurRadius: 8,
-                  offset: const Offset(0, -2),
-                  spreadRadius: 0,
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Ícono grande en un círculo adorable
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isDark 
-                        ? const Color(0xFFB6D7A8).withOpacity(0.2)
-                        : Colors.white.withOpacity(0.9),
-                    border: Border.all(
-                      color: isDark ? const Color(0xFFB6D7A8) : colors['icon']!,
-                      width: 2.5,
+              onTap: onTap,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF2A2A40) : colors['bg'],
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFFB6D7A8) : colors['border']!,
+                    width: 3,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (isDark ? colors['border']! : colors['border']!)
+                          .withOpacity(0.2),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                      spreadRadius: 0,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: (isDark ? const Color(0xFFB6D7A8) : colors['icon']!).withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+                    BoxShadow(
+                      color: Colors.white.withOpacity(isDark ? 0.05 : 0.5),
+                      blurRadius: 8,
+                      offset: const Offset(0, -2),
+                      spreadRadius: 0,
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Ícono grande en un círculo adorable
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isDark
+                            ? const Color(0xFFB6D7A8).withOpacity(0.2)
+                            : Colors.white.withOpacity(0.9),
+                        border: Border.all(
+                          color: isDark
+                              ? const Color(0xFFB6D7A8)
+                              : colors['icon']!,
+                          width: 2.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (isDark
+                                    ? const Color(0xFFB6D7A8)
+                                    : colors['icon']!)
+                                .withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 30,
-                    color: isDark ? const Color(0xFFB6D7A8) : colors['icon'],
-                  ),
+                      child: Icon(
+                        icon,
+                        size: 30,
+                        color: isDark
+                            ? const Color(0xFFB6D7A8)
+                            : colors['icon'],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // Título con fuente más grande y bold
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: isDark
+                            ? const Color(0xFFB6D7A8)
+                            : const Color(0xFF4F4A4A),
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // Descripción más sutil
+                    Text(
+                      description,
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.3,
+                        color: isDark
+                            ? Colors.white.withOpacity(0.7)
+                            : const Color(0xFF6E6A6A),
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                // Título con fuente más grande y bold
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F4A4A),
-                    letterSpacing: 0.3,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                // Descripción más sutil
-                Text(
-                  description,
-                  style: TextStyle(
-                    fontSize: 11,
-                    height: 1.3,
-                    color: isDark 
-                        ? Colors.white.withOpacity(0.7)
-                        : const Color(0xFF6E6A6A),
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+              ),
             ),
           ),
-        ),
+          // Lock overlay for Premium features
+          if (isLocked)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Container(
+                    color: Colors.black.withOpacity(0.55),
+                    child: const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.lock_rounded,
+                            color: Colors.white, size: 32),
+                        SizedBox(height: 8),
+                        Text(
+                          'Premium',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -6705,7 +7042,8 @@ class _SleepPageState extends State<SleepPage> {
 // HEALTH PAGE - Página de salud
 // ============================================================================
 class HealthPage extends StatefulWidget {
-  const HealthPage({super.key});
+  final int initialTab;
+  const HealthPage({super.key, this.initialTab = 0});
 
   @override
   State<HealthPage> createState() => _HealthPageState();
@@ -6723,7 +7061,7 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 5, vsync: this, initialIndex: widget.initialTab);
     _loadPediatricianData();
     _loadAppointments();
     _loadMedicines();
