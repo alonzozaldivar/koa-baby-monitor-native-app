@@ -925,7 +925,6 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
   static const int _requiredFrames = 15;
   bool _hasRegisteredFace = false;
   List<List<double>> _storedEmbeddings = [];
-  String _debugInfo = ''; // Temporal: muestra estado de TFLite y similitud
 
   @override
   void initState() {
@@ -955,10 +954,8 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
     // Inicializar modelo MobileFaceNet
     try {
       await FaceEmbeddingService.instance.initialize();
-      if (mounted) setState(() => _debugInfo = 'TFLite: ✅ cargado');
     } catch (e) {
       debugPrint('⚠️ No se pudo cargar FaceEmbeddingService: $e');
-      if (mounted) setState(() => _debugInfo = 'TFLite: ❌ error: $e');
     }
 
     // 1. Intentar cargar embeddings desde Supabase
@@ -982,9 +979,6 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
           final localVec = List<double>.from(jsonDecode(localJson) as List);
           _storedEmbeddings = [localVec];
           debugPrint('📱 Embedding local cargado (${localVec.length} dims)');
-          if (mounted) setState(() => _debugInfo = '$_debugInfo | Emb: ${localVec.length}d');
-        } else {
-          if (mounted) setState(() => _debugInfo = '$_debugInfo | Emb: NO guardado');
         }
       } catch (e) {
         debugPrint('⚠️ Error cargando embedding local: $e');
@@ -1174,17 +1168,14 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
         }
         final pct = (bestSimilarity * 100).toStringAsFixed(1);
         debugPrint(authenticated ? '✅ Acceso concedido ($pct%)' : '❌ Acceso denegado ($pct%)');
-        if (mounted) setState(() => _debugInfo = 'Similitud: $pct% (mín 60%)');
       } else if (embedding == null && _storedEmbeddings.isNotEmpty) {
         // TFLite falló en este intento pero hay embedding guardado → pedir reintento
-        if (mounted) setState(() => _debugInfo = 'TFLite falló al generar embedding');
         throw Exception('No se pudo analizar el rostro, intenta de nuevo');
       } else {
         // Sin embeddings almacenados: TFLite nunca funcionó en este dispositivo
         // Modo fallback solo para este caso excepcional
         final prefs = await SharedPreferences.getInstance();
         authenticated = prefs.getBool('has_biometric_setup') ?? false;
-        if (mounted) setState(() => _debugInfo = 'Sin emb guardado — flag: $authenticated');
         debugPrint('⚠️ Sin embedding guardado — fallback: $authenticated');
       }
 
@@ -1403,21 +1394,6 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Debug info temporal (TFLite status + similarity)
-                  if (_debugInfo.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        _debugInfo,
-                        style: const TextStyle(color: Colors.yellowAccent, fontSize: 11),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  const SizedBox(height: 8),
                   // Status indicator
                   if (_isVerifying)
                     const CircularProgressIndicator(
