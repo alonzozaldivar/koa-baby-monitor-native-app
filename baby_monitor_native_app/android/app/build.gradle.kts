@@ -21,6 +21,21 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    flavorDimensions += "type"
+    productFlavors {
+        create("production") {
+            dimension = "type"
+            applicationId = "com.example.baby_monitor_native_app"
+            resValue("string", "app_name", "KOA")
+        }
+        create("demo") {
+            dimension = "type"
+            applicationId = "com.example.baby_monitor_native_app.demo"
+            resValue("string", "app_name", "KOA Demo")
+            versionNameSuffix = " Demo"
+        }
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.baby_monitor_native_app"
