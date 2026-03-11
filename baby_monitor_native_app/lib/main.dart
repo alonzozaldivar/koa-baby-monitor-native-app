@@ -921,8 +921,9 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   int _faceDetectedFrames = 0;
-  static const int _requiredFrames = 15; // ~0.5 seconds at 30fps
+  static const int _requiredFrames = 15;
   bool _hasRegisteredFace = false;
+  final LocalAuthentication _localAuth = LocalAuthentication();
 
   @override
   void initState() {
@@ -938,7 +939,6 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
   }
 
   Future<void> _checkAndInitialize() async {
-    // Si no hay perfil de bebé, ir directo al registro
     if (!widget.hasInfantProfile) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -950,12 +950,23 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
       return;
     }
 
-    // Verificar si hay rostro registrado
+    // Verificar si el dispositivo soporta biometría
+    final bool canCheck = await _localAuth.canCheckBiometrics;
+    final bool isDeviceSupported = await _localAuth.isDeviceSupported();
+
+    if (!canCheck && !isDeviceSupported) {
+      // Dispositivo sin biometría — entrar directo
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _goNext();
+      });
+      return;
+    }
+
+    // Verificar si ya registró biometría KOA
     final prefs = await SharedPreferences.getInstance();
-    _hasRegisteredFace = prefs.getString('user_face_photo') != null;
+    _hasRegisteredFace = prefs.getBool('has_biometric_setup') ?? false;
 
     if (!_hasRegisteredFace) {
-      // Si no hay rostro registrado, ir a registrarlo
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           Navigator.of(context).pushReplacement(
@@ -966,7 +977,6 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
       return;
     }
 
-    // Hay rostro registrado, iniciar autenticación facial
     _initializeCamera();
   }
 
@@ -1089,62 +1099,31 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
 
     await _cameraController?.stopImageStream();
 
-    // Captura la foto actual para comparar
     try {
-      final image = await _cameraController?.takePicture();
-      if (image == null) {
-        throw Exception('No se pudo capturar la imagen');
-      }
-
-      // Convertir la imagen capturada a InputImage para ML Kit
-      final inputImage = InputImage.fromFilePath(image.path);
-      final faces = await _faceDetector!.processImage(inputImage);
-
-      if (faces.isEmpty) {
-        throw Exception('No se detectó rostro en la captura');
-      }
-
-      // Comparar con el rostro registrado
-      final prefs = await SharedPreferences.getInstance();
-      final registeredFeaturesJson = prefs.getString('user_face_features');
-      
-      if (registeredFeaturesJson == null) {
-        throw Exception('No hay características faciales registradas');
-      }
-
-      // Extraer características de la cara actual
-      final currentFeatures = _extractFaceFeatures(faces.first);
-      
-      // Decodificar características registradas
-      final registeredFeatures = Map<String, double>.from(
-        jsonDecode(registeredFeaturesJson) as Map
+      // ✅ Autenticación real con biometría del dispositivo
+      final bool authenticated = await _localAuth.authenticate(
+        localizedReason: 'Verifica tu identidad para acceder a KOA',
+        options: const AuthenticationOptions(
+          biometricOnly: false, // permite PIN si no hay biometría
+          stickyAuth: true,
+          useErrorDialogs: true,
+        ),
       );
-
-      // Comparar características faciales
-      final similarity = _compareFaceFeatures(currentFeatures, registeredFeatures);
-      
-      // Umbral de similitud (0.0 a 1.0, donde 1.0 es idéntico)
-      const double similarityThreshold = 0.75;
-      
-      await Future.delayed(const Duration(milliseconds: 1000));
 
       if (!mounted) return;
 
-      if (similarity >= similarityThreshold) {
-        // Rostro verificado - permitir acceso
+      if (authenticated) {
         setState(() {
           _authSuccess = true;
           _statusMessage = 'auth_success';
         });
-
         await Future.delayed(const Duration(milliseconds: 800));
         if (mounted) _goNext();
       } else {
-        // Rostro NO coincide - denegar acceso
-        throw Exception('Rostro no autorizado (similitud: ${(similarity * 100).toStringAsFixed(1)}%)');
+        throw Exception('Autenticación denegada por el dispositivo');
       }
     } catch (e) {
-      debugPrint('Error en verificación facial: $e');
+      debugPrint('Error en verificación biométrica: $e');
       if (!mounted) return;
       setState(() {
         _authFailed = true;
@@ -1153,78 +1132,6 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
     }
   }
 
-  // Extrae características faciales únicas para comparación
-  Map<String, double> _extractFaceFeatures(Face face) {
-    final bounds = face.boundingBox;
-    
-    // Características básicas del rostro
-    return {
-      'width': bounds.width,
-      'height': bounds.height,
-      'aspect_ratio': bounds.width / bounds.height,
-      'head_euler_y': face.headEulerAngleY ?? 0.0,
-      'head_euler_z': face.headEulerAngleZ ?? 0.0,
-      // Probabilidades de características (si están disponibles)
-      'smiling_prob': face.smilingProbability ?? 0.5,
-      'left_eye_open': face.leftEyeOpenProbability ?? 0.5,
-      'right_eye_open': face.rightEyeOpenProbability ?? 0.5,
-    };
-  }
-
-  // Compara dos conjuntos de características faciales
-  // Retorna un valor de 0.0 a 1.0 indicando similitud
-  double _compareFaceFeatures(Map<String, double> features1, Map<String, double> features2) {
-    double totalDifference = 0.0;
-    int count = 0;
-
-    // Pesos para diferentes características (algunas son más importantes)
-    final weights = {
-      'aspect_ratio': 2.0,  // Proporción de la cara es muy importante
-      'width': 1.0,
-      'height': 1.0,
-      'head_euler_y': 0.5,
-      'head_euler_z': 0.5,
-      'smiling_prob': 0.3,
-      'left_eye_open': 0.3,
-      'right_eye_open': 0.3,
-    };
-
-    for (final key in features1.keys) {
-      if (features2.containsKey(key)) {
-        final val1 = features1[key]!;
-        final val2 = features2[key]!;
-        final weight = weights[key] ?? 1.0;
-        
-        // Normalizar diferencias
-        double normalizedDiff;
-        if (key == 'aspect_ratio') {
-          // Para aspect ratio, diferencias pequeñas son críticas
-          normalizedDiff = (val1 - val2).abs() / 2.0;
-        } else if (key.contains('euler')) {
-          // Ángulos de rotación (normalizar a 0-1)
-          normalizedDiff = (val1 - val2).abs() / 360.0;
-        } else if (key.contains('prob') || key.contains('open')) {
-          // Probabilidades ya están entre 0-1
-          normalizedDiff = (val1 - val2).abs();
-        } else {
-          // Dimensiones (normalizar por la media)
-          final mean = (val1 + val2) / 2;
-          normalizedDiff = mean > 0 ? (val1 - val2).abs() / mean : 0.0;
-        }
-        
-        totalDifference += normalizedDiff * weight;
-        count++;
-      }
-    }
-
-    if (count == 0) return 0.0;
-    
-    // Convertir diferencia a similitud (invertir y normalizar a 0-1)
-    final avgDifference = totalDifference / count;
-    final similarity = 1.0 - avgDifference.clamp(0.0, 1.0);
-    
-    return similarity.clamp(0.0, 1.0);
-  }
 
   void _showError() {
     setState(() {
@@ -1597,27 +1504,13 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
 
     try {
       await _cameraController!.stopImageStream();
-      final image = await _cameraController!.takePicture();
-      final bytes = await image.readAsBytes();
-      final base64Image = base64Encode(bytes);
 
-      // Extraer características faciales de la imagen capturada
-      final inputImage = InputImage.fromFilePath(image.path);
-      final faces = await _faceDetector!.processImage(inputImage);
-      
-      if (faces.isEmpty) {
-        throw Exception('No se detectó rostro en la captura');
-      }
-
-      // Extraer y guardar características del rostro
-      final faceFeatures = _extractFaceFeatures(faces.first);
-      final featuresJson = jsonEncode(faceFeatures);
-
+      // ✅ Solo guardamos la bandera de configuración biométrica.
+      // La autenticación real se hace con local_auth (hardware del dispositivo).
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_face_photo', base64Image);
-      await prefs.setString('user_face_features', featuresJson);
+      await prefs.setBool('has_biometric_setup', true);
 
-      debugPrint('Rostro registrado con características: $faceFeatures');
+      debugPrint('Biometría configurada: has_biometric_setup = true');
 
       if (mounted) {
         setState(() {
@@ -1625,7 +1518,6 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
           _statusMessage = 'face_registered';
         });
 
-        // Navegar después de 1.5 segundos
         Future.delayed(const Duration(milliseconds: 1500), () {
           if (mounted) {
             Navigator.of(context).pushReplacement(
@@ -1635,40 +1527,21 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
         });
       }
     } catch (e) {
-      debugPrint('Error al capturar y guardar rostro: $e');
+      debugPrint('Error al registrar biometría: $e');
       if (mounted) {
         setState(() => _statusMessage = 'error_capture');
-        // Reintentar
         _startFaceDetection();
       }
     }
   }
 
-  // Extrae características faciales únicas para comparación
-  Map<String, double> _extractFaceFeatures(Face face) {
-    final bounds = face.boundingBox;
-    
-    // Características básicas del rostro
-    return {
-      'width': bounds.width,
-      'height': bounds.height,
-      'aspect_ratio': bounds.width / bounds.height,
-      'head_euler_y': face.headEulerAngleY ?? 0.0,
-      'head_euler_z': face.headEulerAngleZ ?? 0.0,
-      // Probabilidades de características (si están disponibles)
-      'smiling_prob': face.smilingProbability ?? 0.5,
-      'left_eye_open': face.leftEyeOpenProbability ?? 0.5,
-      'right_eye_open': face.rightEyeOpenProbability ?? 0.5,
-    };
-  }
-
   InputImage? _convertCameraImage(CameraImage image) {
     try {
-      final WriteBuffer allBytes = WriteBuffer();
+      final List<int> allBytes = [];
       for (final Plane plane in image.planes) {
-        allBytes.putUint8List(plane.bytes);
+        allBytes.addAll(plane.bytes);
       }
-      final bytes = allBytes.done().buffer.asUint8List();
+      final bytes = Uint8List.fromList(allBytes);
 
       final imageRotation = InputImageRotationValue.fromRawValue(
         _cameraController!.description.sensorOrientation,
