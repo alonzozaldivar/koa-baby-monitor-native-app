@@ -38,7 +38,7 @@ import 'services/notification_service.dart';
 import 'screens/welcome_screen.dart';
 
 // Modelos
-import 'models/app_models.dart';
+import 'models/app_models.dart' show Caregiver;
 
 // Datos de referencia OMS
 import 'data/who_standards.dart';
@@ -2141,15 +2141,271 @@ class HomeContent extends StatelessWidget {
 }
 
 // ============================================================================
-// REGISTRO PAGE - Página de registro de actividades
+// REGISTRO PAGE - Registro unificado de actividades
 // ============================================================================
-class RegistroPage extends StatelessWidget {
+class _ActivityItem {
+  final String type;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final DateTime timestamp;
+  final Color color;
+
+  _ActivityItem({
+    required this.type,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.timestamp,
+    required this.color,
+  });
+}
+
+class RegistroPage extends StatefulWidget {
   const RegistroPage({super.key});
+
+  @override
+  State<RegistroPage> createState() => _RegistroPageState();
+}
+
+class _RegistroPageState extends State<RegistroPage> {
+  List<_ActivityItem> _activities = [];
+  bool _isLoading = true;
+  String _selectedFilter = 'all';
+
+  final List<Map<String, dynamic>> _filters = [
+    {'key': 'all', 'label': 'Todos', 'icon': Icons.list_alt},
+    {'key': 'food', 'label': 'Comida', 'icon': Icons.restaurant},
+    {'key': 'sleep', 'label': 'Sueño', 'icon': Icons.bedtime},
+    {'key': 'health', 'label': 'Salud', 'icon': Icons.monitor_weight},
+    {'key': 'vaccine', 'label': 'Vacunas', 'icon': Icons.vaccines},
+    {'key': 'appointment', 'label': 'Citas', 'icon': Icons.local_hospital},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActivities();
+  }
+
+  Future<void> _loadActivities() async {
+    setState(() => _isLoading = true);
+    final List<_ActivityItem> items = [];
+
+    try {
+      final feedings = await StorageService.loadFeedingEntries();
+      for (final f in feedings) {
+        final typeLabel = f.type == 'breast'
+            ? 'Lactancia'
+            : f.type == 'bottle'
+                ? 'Biberón'
+                : 'Sólidos';
+        items.add(_ActivityItem(
+          type: 'food',
+          icon: Icons.restaurant,
+          title: 'Alimentación · $typeLabel',
+          subtitle:
+              '${f.amount.toStringAsFixed(0)} ml${f.notes != null && f.notes!.isNotEmpty ? ' · ${f.notes}' : ''}',
+          timestamp: f.time,
+          color: const Color(0xFFFF9800),
+        ));
+      }
+    } catch (_) {}
+
+    try {
+      final sleeps = await StorageService.loadSleepSessions();
+      for (final s in sleeps) {
+        items.add(_ActivityItem(
+          type: 'sleep',
+          icon: Icons.bedtime,
+          title: s.isOngoing ? 'Sueño en curso' : 'Sesión de sueño',
+          subtitle: s.isOngoing ? 'En curso...' : 'Duración: ${s.durationFormatted}',
+          timestamp: s.startTime,
+          color: const Color(0xFF3F51B5),
+        ));
+      }
+    } catch (_) {}
+
+    try {
+      final measurements = await StorageService.loadHealthMeasurements();
+      for (final m in measurements) {
+        items.add(_ActivityItem(
+          type: 'health',
+          icon: Icons.monitor_weight,
+          title: 'Medición de salud',
+          subtitle: '${m.weight} kg · ${m.height} cm',
+          timestamp: m.date,
+          color: const Color(0xFFE91E63),
+        ));
+      }
+    } catch (_) {}
+
+    try {
+      final vaccines = await StorageService.loadVaccines();
+      for (final v in vaccines) {
+        if (v.isApplied && v.appliedDate != null) {
+          items.add(_ActivityItem(
+            type: 'vaccine',
+            icon: Icons.vaccines,
+            title: 'Vacuna aplicada',
+            subtitle: v.name,
+            timestamp: v.appliedDate!,
+            color: const Color(0xFF4CAF50),
+          ));
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final appointments = await StorageService.loadAppointments();
+      for (final a in appointments) {
+        items.add(_ActivityItem(
+          type: 'appointment',
+          icon: Icons.local_hospital,
+          title: a.type,
+          subtitle:
+              '${a.completed ? '✓ Completada' : 'Pendiente'}${a.notes != null && a.notes!.isNotEmpty ? ' · ${a.notes}' : ''}',
+          timestamp:
+              DateTime(a.date.year, a.date.month, a.date.day, a.time.hour, a.time.minute),
+          color: const Color(0xFF9C27B0),
+        ));
+      }
+    } catch (_) {}
+
+    items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    if (mounted) {
+      setState(() {
+        _activities = items;
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<_ActivityItem> get _filtered {
+    if (_selectedFilter == 'all') return _activities;
+    return _activities.where((a) => a.type == _selectedFilter).toList();
+  }
+
+  String _formatDateHeader(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final date = DateTime(dt.year, dt.month, dt.day);
+    if (date == today) return 'Hoy';
+    if (date == yesterday) return 'Ayer';
+    return DateFormat("d 'de' MMMM yyyy", 'es').format(dt);
+  }
+
+  List<Widget> _buildGroupedList(List<_ActivityItem> items, bool isDark, AppState appState) {
+    if (items.isEmpty) {
+      return [
+        const SizedBox(height: 48),
+        Center(
+          child: Column(
+            children: [
+              Icon(Icons.history, size: 64, color: isDark ? Colors.grey[600] : Colors.grey[400]),
+              const SizedBox(height: 16),
+              Text(
+                appState.tr('no_activities'),
+                style: TextStyle(
+                  fontSize: 16,
+                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
+
+    final widgets = <Widget>[];
+    String? lastDateHeader;
+
+    for (final item in items) {
+      final header = _formatDateHeader(item.timestamp);
+      if (header != lastDateHeader) {
+        lastDateHeader = header;
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 16, bottom: 8),
+            child: Text(
+              header,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white54 : const Color(0xFF6E8F6A),
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+        );
+      }
+      widgets.add(_buildActivityTile(item, isDark));
+    }
+    return widgets;
+  }
+
+  Widget _buildActivityTile(_ActivityItem item, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF252540) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: item.color.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(item.icon, color: item.color, size: 22),
+        ),
+        title: Text(
+          item.title,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white : const Color(0xFF333333),
+          ),
+        ),
+        subtitle: Text(
+          item.subtitle,
+          style: TextStyle(
+            fontSize: 13,
+            color: isDark ? Colors.white54 : Colors.grey[600],
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Text(
+          DateFormat('HH:mm').format(item.timestamp),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.white38 : Colors.grey[500],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final appState = Provider.of<AppState>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final filtered = _filtered;
 
     return SafeArea(
       child: Column(
@@ -2165,41 +2421,70 @@ class RegistroPage extends StatelessWidget {
                   topRight: Radius.circular(24),
                 ),
               ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    Text(
-                      appState.tr('activity_log'),
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            fontSize: 22,
-                          ),
-                    ),
-                    const SizedBox(height: 24),
-                    Center(
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.history,
-                            size: 64,
-                            color: isDark ? Colors.grey[600] : Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 8, 0),
+                    child: Row(
+                      children: [
+                        Text(
+                          appState.tr('activity_log'),
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 22),
+                        ),
+                        const Spacer(),
+                        if (_activities.isNotEmpty)
                           Text(
-                            appState.tr('no_activities'),
+                            '${filtered.length} registros',
                             style: TextStyle(
-                              fontSize: 16,
-                              color: isDark ? Colors.grey[400] : Colors.grey[600],
+                              fontSize: 13,
+                              color: isDark ? Colors.white38 : Colors.grey[500],
                             ),
-                            textAlign: TextAlign.center,
                           ),
-                        ],
-                      ),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, size: 20),
+                          onPressed: _loadActivities,
+                          color: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F7A4A),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  SizedBox(
+                    height: 44,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      children: _filters.map((f) {
+                        final selected = _selectedFilter == f['key'];
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: FilterChip(
+                            avatar: Icon(
+                              f['icon'] as IconData,
+                              size: 14,
+                              color: selected ? Colors.white : (isDark ? Colors.white54 : Colors.grey[700]),
+                            ),
+                            label: Text(f['label'] as String),
+                            selected: selected,
+                            onSelected: (_) => setState(() => _selectedFilter = f['key'] as String),
+                            selectedColor: const Color(0xFF4F7A4A),
+                            checkmarkColor: Colors.white,
+                            labelStyle: TextStyle(fontSize: 12, color: selected ? Colors.white : null),
+                            backgroundColor: isDark ? const Color(0xFF252540) : null,
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  Expanded(
+                    child: _isLoading
+                        ? const Center(child: CircularProgressIndicator(color: Color(0xFFB6D7A8)))
+                        : ListView(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            children: _buildGroupedList(filtered, isDark, appState),
+                          ),
+                  ),
+                ],
               ),
             ),
           ),

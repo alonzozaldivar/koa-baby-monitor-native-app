@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
@@ -108,11 +109,11 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
 
   InputImage? _convertToInputImage(CameraImage image) {
     try {
-      final WriteBuffer allBytes = WriteBuffer();
+      final List<int> allBytes = [];
       for (final Plane plane in image.planes) {
-        allBytes.putUint8List(plane.bytes);
+        allBytes.addAll(plane.bytes);
       }
-      final bytes = allBytes.done().buffer.asUint8List();
+      final bytes = Uint8List.fromList(allBytes);
 
       final inputImageData = InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
@@ -179,7 +180,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
     try {
       setState(() => _statusMessage = 'Verificando...');
       
-      final user = await AuthService.signInWithFace(imageBytes);
+      final user = await AuthService.signInWithFace({'raw_image': base64Encode(imageBytes)});
       
       if (user != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -221,7 +222,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen> {
     try {
       setState(() => _statusMessage = 'Registrando rostro...');
       
-      await AuthService.registerFaceBiometric(imageBytes);
+      await AuthService.registerFaceBiometric(faceEncoding: {'raw_image': base64Encode(imageBytes)});
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
