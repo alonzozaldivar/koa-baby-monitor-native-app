@@ -97,6 +97,8 @@ flutter:
   # Assets for the application (KOA cover image, etc.).
   assets:
     - assets/images/koa_cover.png
+    - assets/images/koa_logo.png
+    - assets/images/koa_logo.jpg
     - assets/videos/
     - assets/models/
 
