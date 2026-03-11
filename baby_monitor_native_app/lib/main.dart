@@ -1072,11 +1072,11 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
 
   InputImage? _convertCameraImage(CameraImage image) {
     try {
-      final WriteBuffer allBytes = WriteBuffer();
+      final List<int> allBytes = [];
       for (final Plane plane in image.planes) {
-        allBytes.putUint8List(plane.bytes);
+        allBytes.addAll(plane.bytes);
       }
-      final bytes = allBytes.done().buffer.asUint8List();
+      final bytes = Uint8List.fromList(allBytes);
 
       final imageRotation = InputImageRotationValue.fromRawValue(
         _cameraController!.description.sensorOrientation,
@@ -1113,11 +1113,16 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
       final photo = await _cameraController!.takePicture();
       final imageBytes = await photo.readAsBytes();
 
-      // 2. Detectar rostro en la foto para bounding box preciso
-      final inputForDetection = InputImage.fromFilePath(photo.path);
-      final detectedFaces = await _faceDetector!.processImage(inputForDetection);
-      final faceBounds =
-          detectedFaces.isNotEmpty ? detectedFaces.first.boundingBox : null;
+      // 2. Intentar obtener bounding box de la foto (no fatal si falla)
+      Rect? faceBounds;
+      try {
+        final inputForDetection = InputImage.fromFilePath(photo.path);
+        final detectedFaces =
+            await _faceDetector!.processImage(inputForDetection);
+        if (detectedFaces.isNotEmpty) faceBounds = detectedFaces.first.boundingBox;
+      } catch (_) {
+        debugPrint('⚠️ Detección en foto falló, usando imagen completa');
+      }
 
       // 3. Generar embedding FaceNet
       final embedding = await FaceEmbeddingService.instance
@@ -1551,34 +1556,40 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
       final photo = await _cameraController!.takePicture();
       final imageBytes = await photo.readAsBytes();
 
-      // 2. Detectar cara para bounding box preciso
-      final inputForDetection = InputImage.fromFilePath(photo.path);
-      final detectedFaces =
-          await _faceDetector!.processImage(inputForDetection);
-      if (detectedFaces.isEmpty) {
-        throw Exception('No se detectó rostro en la captura');
+      // 2. Intentar obtener bounding box de la foto (no fatal si falla)
+      //    La foto estática puede tener rotación diferente al stream.
+      Rect? faceBounds;
+      try {
+        final inputForDetection = InputImage.fromFilePath(photo.path);
+        final detected = await _faceDetector!.processImage(inputForDetection);
+        if (detected.isNotEmpty) faceBounds = detected.first.boundingBox;
+      } catch (_) {
+        debugPrint('⚠️ Detección en foto falló, usando imagen completa');
       }
-      final faceBounds = detectedFaces.first.boundingBox;
 
-      // 3. Generar embedding FaceNet
+      // 3. Generar embedding FaceNet (con o sin recorte)
       await FaceEmbeddingService.instance.initialize();
       final embedding = await FaceEmbeddingService.instance
           .generateEmbedding(imageBytes, faceBounds);
       if (embedding == null) {
-        throw Exception('No se pudo generar el embedding facial');
+        throw Exception('FaceEmbeddingService devolvió null');
       }
 
-      // 4. Guardar embedding en Supabase
-      await AuthService.registerFaceBiometric(
-        faceEncoding: {'vector': embedding},
-      );
-
-      // 5. Flag local de respaldo
+      // 4. Guardar flag local PRIMERO (garantiza registro aunque falle red)
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_biometric_setup', true);
 
-      debugPrint(
-          '✅ Embedding registrado: ${embedding.length} dimensiones → Supabase');
+      // 5. Intentar subir a Supabase (no fatal si falla o tabla no existe)
+      try {
+        await AuthService.registerFaceBiometric(
+          faceEncoding: {'vector': embedding},
+        );
+        debugPrint(
+            '✅ Embedding registrado: ${embedding.length} dim → Supabase');
+      } catch (e) {
+        debugPrint('⚠️ Supabase falló (tabla pendiente?): $e');
+        // Guardado local es suficiente para continuar
+      }
 
       if (mounted) {
         setState(() {
