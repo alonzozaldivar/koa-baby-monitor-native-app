@@ -62,14 +62,10 @@ workflows:
         script: flutter pub get
       - name: Install CocoaPods
         script: cd ios && pod install --repo-update
-      - name: Build iOS IPA
-        script: |
-          flutter build ipa \
-            --release \
-            --flavor production \
-            --export-options-plist=/Users/builder/export_options.plist
+      - name: Build iOS (no codesign)
+        script: flutter build ios --release --flavor production --no-codesign
     artifacts:
-      - baby_monitor_native_app/build/ios/ipa/*.ipa
+      - baby_monitor_native_app/build/ios/**/*.app
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:
@@ -98,16 +94,12 @@ workflows:
         script: flutter build appbundle --release --flavor production
       - name: Install CocoaPods
         script: cd ios && pod install --repo-update
-      - name: Build iOS IPA
-        script: |
-          flutter build ipa \
-            --release \
-            --flavor production \
-            --export-options-plist=/Users/builder/export_options.plist
+      - name: Build iOS (no codesign)
+        script: flutter build ios --release --flavor production --no-codesign
     artifacts:
       - baby_monitor_native_app/build/app/outputs/flutter-apk/*.apk
       - baby_monitor_native_app/build/app/outputs/bundle/**/*.aab
-      - baby_monitor_native_app/build/ios/ipa/*.ipa
+      - baby_monitor_native_app/build/ios/**/*.app
     publishing:
       email:
         recipients:
