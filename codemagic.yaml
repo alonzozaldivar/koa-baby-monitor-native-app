@@ -70,9 +70,16 @@ workflows:
           mkdir -p Payload
           cp -r Runner.app Payload/
           zip -r KOA-unsigned.ipa Payload
-          mv KOA-unsigned.ipa $CM_BUILD_DIR/
+          echo "IPA created at: $(pwd)/KOA-unsigned.ipa"
+          ls -la KOA-unsigned.ipa
+          echo "CM_BUILD_DIR=$CM_BUILD_DIR"
+          cp KOA-unsigned.ipa $CM_BUILD_DIR/KOA-unsigned.ipa || true
+          cp KOA-unsigned.ipa $CM_BUILD_DIR/baby_monitor_native_app/KOA-unsigned.ipa || true
     artifacts:
+      - KOA-unsigned.ipa
       - baby_monitor_native_app/KOA-unsigned.ipa
+      - baby_monitor_native_app/build/ios/iphoneos/KOA-unsigned.ipa
+      - "**/*.ipa"
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:
