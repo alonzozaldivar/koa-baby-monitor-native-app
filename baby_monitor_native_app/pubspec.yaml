@@ -100,6 +100,9 @@ flutter:
     - assets/images/koa_logo.png
     - assets/images/koa_logo.jpg
     - assets/images/koa_character.png
+    - assets/images/koala_baby.png
+    - assets/images/koala_nino.png
+    - assets/images/koala_infante.png
     - assets/videos/
     - assets/models/
 

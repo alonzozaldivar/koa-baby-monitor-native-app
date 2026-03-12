@@ -20,7 +20,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:http/http.dart' as http;
@@ -39,6 +38,10 @@ import 'screens/premium_paywall_page.dart';
 
 // Pantallas de autenticación
 import 'screens/welcome_screen.dart';
+import 'screens/login_screen.dart';
+
+// Widgets
+import 'widgets/koala_tip_widget.dart';
 
 // Modelos
 import 'models/app_models.dart' show Caregiver;
@@ -110,6 +113,15 @@ class AppState extends ChangeNotifier {
       'logout_confirm': {'es': '¿Seguro que quieres cerrar sesión?', 'en': 'Are you sure you want to log out?'},
       'cancel': {'es': 'Cancelar', 'en': 'Cancel'},
       'confirm': {'es': 'Confirmar', 'en': 'Confirm'},
+      'switch_account': {'es': 'Cambiar de cuenta', 'en': 'Switch account'},
+      'switch_account_confirm': {'es': 'Se cerrará la sesión actual para iniciar con otra cuenta.', 'en': 'The current session will be closed to sign in with another account.'},
+      'delete_account': {'es': 'Eliminar cuenta', 'en': 'Delete account'},
+      'delete_account_title': {'es': 'Eliminar cuenta', 'en': 'Delete account'},
+      'delete_account_warning': {'es': 'Esta acción es irreversible. Se eliminarán todos tus datos, perfiles de bebés, registros y configuraciones. \n\nEscribe ELIMINAR para confirmar.', 'en': 'This action is irreversible. All your data, baby profiles, records and settings will be deleted. \n\nType DELETE to confirm.'},
+      'delete_account_confirm_word_es': {'es': 'ELIMINAR', 'en': 'DELETE'},
+      'delete_account_success': {'es': 'Cuenta eliminada correctamente', 'en': 'Account deleted successfully'},
+      'delete_account_error': {'es': 'Error al eliminar la cuenta. Intenta de nuevo.', 'en': 'Error deleting account. Please try again.'},
+      'delete_account_wrong_word': {'es': 'Escribe ELIMINAR para confirmar', 'en': 'Type DELETE to confirm'},
       'main_sections': {'es': 'Apartados principales', 'en': 'Main sections'},
       'recent_activities': {'es': 'Últimas actividades', 'en': 'Recent activities'},
       'food': {'es': 'Comida', 'en': 'Food'},
@@ -2127,6 +2139,11 @@ class _HomeContentState extends State<HomeContent> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 8),
+                    // Tip del koala
+                    KoalaTipWidget(
+                      section: 'home',
+                      languageCode: appState.locale.languageCode,
+                    ),
                     // Cuidadores — funcionalidad Premium
                     if (_isPremium)
                       const CaregiversSection()
@@ -3421,6 +3438,156 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _switchAccount(BuildContext context) async {
+    final appState = Provider.of<AppState>(context, listen: false);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(appState.tr('switch_account')),
+        content: Text(appState.tr('switch_account_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(appState.tr('cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F7A4A),
+              foregroundColor: Colors.white,
+            ),
+            child: Text(appState.tr('confirm')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      await Supabase.instance.client.auth.signOut();
+      if (context.mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteAccount(BuildContext context) async {
+    final appState = Provider.of<AppState>(context, listen: false);
+    final confirmWord = appState.locale.languageCode == 'es' ? 'ELIMINAR' : 'DELETE';
+    final controller = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red[800], size: 28),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                appState.tr('delete_account_title'),
+                style: TextStyle(color: Colors.red[800]),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              appState.tr('delete_account_warning'),
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                hintText: confirmWord,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.red[800]!),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(appState.tr('cancel')),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (controller.text.trim() == confirmWord) {
+                Navigator.of(ctx).pop(true);
+              } else {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(
+                    content: Text(appState.tr('delete_account_wrong_word')),
+                    backgroundColor: Colors.red[800],
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red[800],
+              foregroundColor: Colors.white,
+            ),
+            child: Text(appState.tr('delete_account')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      // Mostrar loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+
+      try {
+        await AuthService.deleteAccount();
+
+        if (context.mounted) {
+          Navigator.of(context).pop(); // Cerrar loading
+          // Limpiar preferencias locales
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.clear();
+
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(appState.tr('delete_account_success')),
+                backgroundColor: const Color(0xFF4F7A4A),
+              ),
+            );
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+              (route) => false,
+            );
+          }
+        }
+      } catch (e) {
+        if (context.mounted) {
+          Navigator.of(context).pop(); // Cerrar loading
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(appState.tr('delete_account_error')),
+              backgroundColor: Colors.red[800],
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = Provider.of<AppState>(context);
@@ -3618,11 +3785,24 @@ class _SettingsPageState extends State<SettingsPage> {
                     _SectionTitle(title: appState.tr('account')),
                     const SizedBox(height: 8),
                     _SettingsTile(
+                      icon: Icons.swap_horiz,
+                      title: appState.tr('switch_account'),
+                      onTap: () => _switchAccount(context),
+                    ),
+                    _SettingsTile(
                       icon: Icons.logout,
                       title: appState.tr('logout'),
                       iconColor: Colors.redAccent,
                       titleColor: Colors.redAccent,
                       onTap: () => _logout(context),
+                    ),
+                    const SizedBox(height: 8),
+                    _SettingsTile(
+                      icon: Icons.delete_forever,
+                      title: appState.tr('delete_account'),
+                      iconColor: Colors.red[800],
+                      titleColor: Colors.red[800],
+                      onTap: () => _deleteAccount(context),
                     ),
                   ],
                 ),
@@ -4762,6 +4942,11 @@ class _FoodPageState extends State<FoodPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Tip del koala
+                KoalaTipWidget(
+                  section: 'food',
+                  languageCode: Localizations.localeOf(context).languageCode,
+                ),
                 // Tarjeta de etapa actual
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -6738,6 +6923,11 @@ class _SleepPageState extends State<SleepPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Tip del koala
+                KoalaTipWidget(
+                  section: 'sleep',
+                  languageCode: Localizations.localeOf(context).languageCode,
+                ),
                 // Estadísticas
                 Container(
                   padding: const EdgeInsets.all(20),
@@ -7055,14 +7245,11 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
   final List<MedicineReminder> _medicines = [];
   final List<HealthMeasurement> _measurements = [];
   final List<VaccineRecord> _vaccines = [];
-  String _pediatricianName = '';
-  String _pediatricianPhone = '';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this, initialIndex: widget.initialTab);
-    _loadPediatricianData();
+    _tabController = TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
     _loadAppointments();
     _loadMedicines();
     _loadMeasurements();
@@ -7136,20 +7323,6 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  Future<void> _loadPediatricianData() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _pediatricianName = prefs.getString('pediatrician_name') ?? '';
-      _pediatricianPhone = prefs.getString('pediatrician_phone') ?? '';
-    });
-  }
-
-  Future<void> _savePediatricianData() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('pediatrician_name', _pediatricianName);
-    await prefs.setString('pediatrician_phone', _pediatricianPhone);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -7166,7 +7339,6 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
             Tab(icon: Icon(Icons.medication), text: 'Medicinas'),
             Tab(icon: Icon(Icons.height), text: 'Crecimiento'),
             Tab(icon: Icon(Icons.vaccines), text: 'Vacunas'),
-            Tab(icon: Icon(Icons.phone), text: 'Pediatra'),
           ],
         ),
       ),
@@ -7189,7 +7361,6 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
             _buildMedicinesTab(),
             _buildGrowthTab(),
             _buildVaccinesTab(),
-            _buildPediatricianTab(),
           ],
         ),
       ),
@@ -7207,6 +7378,11 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Tip del koala
+            KoalaTipWidget(
+              section: 'health',
+              languageCode: Localizations.localeOf(context).languageCode,
+            ),
             // Botón agregar cita
             ElevatedButton.icon(
               onPressed: _addAppointment,
@@ -8282,206 +8458,6 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
     );
   }
 
-  // TAB 5: Pediatra
-  Widget _buildPediatricianTab() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  const CircleAvatar(
-                    radius: 40,
-                    backgroundColor: Color(0xFFE3F2FD),
-                    child: Icon(
-                      Icons.medical_services,
-                      size: 40,
-                      color: Color(0xFF1976D2),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Mi Pediatra',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF4F7A4A),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    decoration: InputDecoration(
-                      labelText: 'Nombre del pediatra',
-                      prefixIcon: const Icon(Icons.person),
-                      filled: true,
-                      fillColor: const Color(0xFFF5FFF3),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                    onChanged: (value) => _pediatricianName = value,
-                    controller: TextEditingController(text: _pediatricianName)
-                      ..selection = TextSelection.collapsed(
-                          offset: _pediatricianName.length),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    decoration: InputDecoration(
-                      labelText: 'Número de teléfono',
-                      prefixIcon: const Icon(Icons.phone),
-                      filled: true,
-                      fillColor: const Color(0xFFF5FFF3),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                    keyboardType: TextInputType.phone,
-                    onChanged: (value) => _pediatricianPhone = value,
-                    controller: TextEditingController(text: _pediatricianPhone)
-                      ..selection = TextSelection.collapsed(
-                          offset: _pediatricianPhone.length),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            await _savePediatricianData();
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Datos guardados')),
-                              );
-                            }
-                          },
-                          icon: const Icon(Icons.save),
-                          label: const Text('Guardar'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFB6D7A8),
-                            foregroundColor: const Color(0xFF355334),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Botón de llamada
-            if (_pediatricianPhone.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.red[400]!,
-                      Colors.red[600]!,
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.red.withValues(alpha: 0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    const Text(
-                      '¿Necesitas ayuda urgente?',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _callPediatrician,
-                      icon: const Icon(Icons.phone, size: 28),
-                      label: Text(
-                        _pediatricianName.isEmpty
-                            ? 'Llamar al Pediatra'
-                            : 'Llamar a $_pediatricianName',
-                        style: const TextStyle(fontSize: 18),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.red[700],
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 16, horizontal: 24),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        elevation: 0,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _callPediatrician() async {
-    if (_pediatricianPhone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Primero ingresa el número del pediatra')),
-      );
-      return;
-    }
-
-    final phoneNumber = _pediatricianPhone.replaceAll(RegExp(r'[^0-9+]'), '');
-    final uri = Uri.parse('tel:$phoneNumber');
-
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('No se puede realizar la llamada')),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al llamar: $e')),
-        );
-      }
-    }
-  }
 }
 
 // ============================================================================
@@ -8852,6 +8828,14 @@ class _MemoriesDiaryPageState extends State<MemoriesDiaryPage> with SingleTicker
       ),
       body: Column(
         children: [
+          // Tip del koala
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: KoalaTipWidget(
+              section: 'diary',
+              languageCode: appState.locale.languageCode,
+            ),
+          ),
           // Header con info del bebé
           _buildBabyHeader(appState),
           // Tabs content
