@@ -25,6 +25,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // Configuración
 import 'config/supabase_config.dart';
@@ -308,15 +309,24 @@ class AppState extends ChangeNotifier {
   }
 }
 
+/// Flag global: true si Supabase se inicializó correctamente
+bool _supabaseReady = false;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Inicializar Supabase
-  await Supabase.initialize(
-    url: SupabaseConfig.supabaseUrl,
-    anonKey: SupabaseConfig.supabaseAnonKey,
-  );
-  debugPrint('✅ Supabase inicializado');
+  // Inicializar Supabase (con fallback offline)
+  try {
+    await Supabase.initialize(
+      url: SupabaseConfig.supabaseUrl,
+      anonKey: SupabaseConfig.supabaseAnonKey,
+    );
+    _supabaseReady = true;
+    debugPrint('✅ Supabase inicializado');
+  } catch (e) {
+    _supabaseReady = false;
+    debugPrint('⚠️ Sin conexión a Supabase – modo offline: $e');
+  }
   
   // Inicializar MediaKit para streaming RTSP
   MediaKit.ensureInitialized();
@@ -435,12 +445,22 @@ class _InitialScreenState extends State<InitialScreen> {
 
     if (!mounted) return;
 
-    // 1. Verificar si hay sesión activa en Supabase
-    final hasActiveSession = isAuthenticated;
-    debugPrint('🔑 Sesión activa: $hasActiveSession');
+    // 1. Verificar si hay sesión activa en Supabase (o modo offline)
+    bool hasActiveSession = false;
+    if (_supabaseReady) {
+      try {
+        hasActiveSession = isAuthenticated;
+      } catch (_) {
+        hasActiveSession = false;
+      }
+    }
+    debugPrint('🔑 Sesión activa: $hasActiveSession (Supabase: $_supabaseReady)');
 
-    if (hasActiveSession) {
-      // Usuario ya tiene sesión → ir directo a selección de perfil
+    // Si no hay Supabase pero hay perfil local, permitir acceso offline
+    final prefs = await SharedPreferences.getInstance();
+    final hasLocalProfile = prefs.getBool('has_infant_profile') ?? false;
+
+    if (hasActiveSession || (!_supabaseReady && hasLocalProfile)) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => const ProfileSelectionPage(),
@@ -450,19 +470,16 @@ class _InitialScreenState extends State<InitialScreen> {
     }
 
     // 2. Verificar si ya vio el video de intro
-    final prefs = await SharedPreferences.getInstance();
     final hasSeenIntro = prefs.getBool('has_seen_intro') ?? false;
     debugPrint('🎥 Ya vio intro: $hasSeenIntro');
 
     if (hasSeenIntro || kIsWeb) {
-      // Ya vio el intro o está en web → ir a pantalla de bienvenida
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => const WelcomeScreen(),
         ),
       );
     } else {
-      // Primera vez en móvil → mostrar video intro
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => const IntroVideoPage(),
@@ -604,10 +621,10 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
   }
 
   void _selectProfile() {
-    // Ir a autenticación facial
+    // Ir directo a la pantalla principal
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => const BiometricLoginPage(hasInfantProfile: true),
+        builder: (_) => const MainNavigationPage(),
       ),
     );
   }
@@ -2286,18 +2303,14 @@ class _HomeContentState extends State<HomeContent> {
                         ),
                         KoaFeatureCard(
                           icon: Icons.phone,
-                          title: 'Llamar al Pediatra',
+                          title: 'Pediatra',
                           description:
-                              'Contacta al medico de tu bebe directamente.',
-                          isLocked: !_isPremium,
-                          onTap: _isPremium
-                              ? () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          const HealthPage(initialTab: 4),
-                                    ),
-                                  )
-                              : _openPaywall,
+                              'Llama a tu pediatra o emergencias.',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const PediatricianCallPage(),
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -2679,7 +2692,14 @@ class StatsPage extends StatefulWidget {
 class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   List<HealthMeasurement> _measurements = [];
-  String _gender = 'masculino'; // Por defecto
+  String _gender = 'masculino';
+  // Resumen stats
+  int _totalFeedings = 0;
+  int _totalSleepSessions = 0;
+  double _avgSleepMinutes = 0;
+  int _totalVaccinesApplied = 0;
+  int _totalAppointments = 0;
+  double _avgFeedingsPerDay = 0;
 
   @override
   void initState() {
@@ -2693,15 +2713,35 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
     final prefs = await SharedPreferences.getInstance();
     final gender = prefs.getString('infant_gender') ?? 'masculino';
     
-    debugPrint('ℹ️ Mediciones cargadas: ${measurements.length}');
-    for (var m in measurements) {
-      debugPrint('  - ${m.date}: ${m.weight}kg, ${m.height}cm, ${m.ageInMonths}m');
+    // Cargar datos para resumen
+    final feedings = await StorageService.loadFeedingEntries();
+    final sleeps = await StorageService.loadSleepSessions();
+    final vaccines = await StorageService.loadVaccines();
+    final appointments = await StorageService.loadAppointments();
+
+    // Calcular promedios
+    double avgFeedings = 0;
+    if (feedings.isNotEmpty) {
+      final days = feedings.last.time.difference(feedings.first.time).inDays.abs();
+      avgFeedings = days > 0 ? feedings.length / days : feedings.length.toDouble();
     }
-    debugPrint('ℹ️ Género: $gender');
-    
+
+    double avgSleep = 0;
+    final completedSleeps = sleeps.where((s) => !s.isOngoing && s.endTime != null).toList();
+    if (completedSleeps.isNotEmpty) {
+      final totalMin = completedSleeps.fold<int>(0, (sum, s) => sum + s.endTime!.difference(s.startTime).inMinutes);
+      avgSleep = totalMin / completedSleeps.length;
+    }
+
     setState(() {
       _measurements = measurements;
       _gender = gender;
+      _totalFeedings = feedings.length;
+      _totalSleepSessions = sleeps.length;
+      _avgSleepMinutes = avgSleep;
+      _totalVaccinesApplied = vaccines.where((v) => v.isApplied).length;
+      _totalAppointments = appointments.length;
+      _avgFeedingsPerDay = avgFeedings;
     });
   }
 
@@ -2769,39 +2809,154 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
   }
 
   Widget _buildSummaryTab(bool isDark) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Center(
+    final hasData = _totalFeedings > 0 || _totalSleepSessions > 0 || _totalVaccinesApplied > 0;
+
+    if (!hasData) {
+      return Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.bar_chart,
-              size: 64,
-              color: isDark ? Colors.grey[600] : Colors.grey[400],
-            ),
+            Icon(Icons.bar_chart, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             Text(
-              'Próximamente',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.grey[400] : Colors.grey[600],
-              ),
+              'Aún no hay datos',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.grey[600]),
             ),
             const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                'Aquí podrás ver estadísticas generales',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark ? Colors.grey[500] : Colors.grey[500],
-                ),
-                textAlign: TextAlign.center,
-              ),
+            Text(
+              'Registra actividades para ver tus estadísticas aquí',
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
+      );
+    }
+
+    final avgSleepH = (_avgSleepMinutes / 60).floor();
+    final avgSleepM = (_avgSleepMinutes % 60).round();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Alimentación
+          _buildStatCard(
+            icon: Icons.restaurant,
+            title: 'Alimentación',
+            color: const Color(0xFFFF9800),
+            bgColor: const Color(0xFFFFF8E7),
+            stats: [
+              _StatItem('Total registros', '$_totalFeedings'),
+              _StatItem('Promedio/día', _avgFeedingsPerDay.toStringAsFixed(1)),
+            ],
+            isDark: isDark,
+          ),
+          const SizedBox(height: 12),
+          // Sueño
+          _buildStatCard(
+            icon: Icons.bedtime,
+            title: 'Sueño',
+            color: const Color(0xFF3F51B5),
+            bgColor: const Color(0xFFE8EAF6),
+            stats: [
+              _StatItem('Total sesiones', '$_totalSleepSessions'),
+              _StatItem('Promedio duración', '${avgSleepH}h ${avgSleepM}m'),
+            ],
+            isDark: isDark,
+          ),
+          const SizedBox(height: 12),
+          // Salud
+          _buildStatCard(
+            icon: Icons.favorite,
+            title: 'Salud',
+            color: const Color(0xFFE91E63),
+            bgColor: const Color(0xFFFCE4EC),
+            stats: [
+              _StatItem('Vacunas aplicadas', '$_totalVaccinesApplied'),
+              _StatItem('Citas médicas', '$_totalAppointments'),
+              _StatItem('Mediciones', '${_measurements.length}'),
+            ],
+            isDark: isDark,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard({
+    required IconData icon,
+    required String title,
+    required Color color,
+    required Color bgColor,
+    required List<_StatItem> stats,
+    required bool isDark,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF252540) : bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color.withOpacity(isDark ? 0.2 : 0.15),
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...stats.map((s) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  s.label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark ? Colors.grey[400] : Colors.grey[700],
+                  ),
+                ),
+                Text(
+                  s.value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : color,
+                  ),
+                ),
+              ],
+            ),
+          )),
+        ],
       ),
     );
   }
@@ -3373,6 +3528,12 @@ class _LegendItem extends StatelessWidget {
   }
 }
 
+class _StatItem {
+  final String label;
+  final String value;
+  _StatItem(this.label, this.value);
+}
+
 // ============================================================================
 // SETTINGS PAGE - Página de ajustes
 // ============================================================================
@@ -3422,11 +3583,12 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     if (confirmed == true && context.mounted) {
-      // Cerrar sesión de Supabase
-      await Supabase.instance.client.auth.signOut();
-      debugPrint('✅ Sesión cerrada en Supabase');
+      // Cerrar sesión de Supabase (seguro offline)
+      try {
+        if (_supabaseReady) await Supabase.instance.client.auth.signOut();
+      } catch (_) {}
+      debugPrint('✅ Sesión cerrada');
       
-      // Navegar a WelcomeScreen para permitir otro usuario iniciar sesión
       if (context.mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
@@ -3463,7 +3625,9 @@ class _SettingsPageState extends State<SettingsPage> {
     );
 
     if (confirmed == true && context.mounted) {
-      await Supabase.instance.client.auth.signOut();
+      try {
+        if (_supabaseReady) await Supabase.instance.client.auth.signOut();
+      } catch (_) {}
       if (context.mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -4470,7 +4634,7 @@ class KoaFeatureCard extends StatelessWidget {
 
     return SizedBox(
       width: (MediaQuery.of(context).size.width - 24 * 2 - 16) / 2,
-      height: 200,
+      height: 210,
       child: Stack(
         children: [
           Material(
@@ -7250,6 +7414,9 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadAppointments();
     _loadMedicines();
     _loadMeasurements();
@@ -7328,17 +7495,31 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFFB6D7A8),
-        title: const Text('Salud'),
+        title: const Text('Salud', style: TextStyle(fontWeight: FontWeight.w700)),
+        foregroundColor: const Color(0xFF355334),
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: const Color(0xFF4F7A4A),
-          labelColor: const Color(0xFF4F7A4A),
+          indicatorWeight: 3,
+          labelColor: const Color(0xFF355334),
           unselectedLabelColor: const Color(0xFF6E8F6A),
-          tabs: const [
-            Tab(icon: Icon(Icons.calendar_today), text: 'Citas'),
-            Tab(icon: Icon(Icons.medication), text: 'Medicinas'),
-            Tab(icon: Icon(Icons.height), text: 'Crecimiento'),
-            Tab(icon: Icon(Icons.vaccines), text: 'Vacunas'),
+          tabs: [
+            Tab(
+              icon: Icon(Icons.calendar_today, color: _tabController.index == 0 ? const Color(0xFF1565C0) : null),
+              text: 'Citas',
+            ),
+            Tab(
+              icon: Icon(Icons.medication, color: _tabController.index == 1 ? const Color(0xFFE91E63) : null),
+              text: 'Medicinas',
+            ),
+            Tab(
+              icon: Icon(Icons.height, color: _tabController.index == 2 ? const Color(0xFFFF9800) : null),
+              text: 'Crecimiento',
+            ),
+            Tab(
+              icon: Icon(Icons.vaccines, color: _tabController.index == 3 ? const Color(0xFF4CAF50) : null),
+              text: 'Vacunas',
+            ),
           ],
         ),
       ),
@@ -8458,6 +8639,342 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
     );
   }
 
+}
+
+// ============================================================================
+// PEDIATRICIAN CALL PAGE - Llamar al pediatra o emergencias
+// ============================================================================
+class PediatricianCallPage extends StatefulWidget {
+  const PediatricianCallPage({super.key});
+
+  @override
+  State<PediatricianCallPage> createState() => _PediatricianCallPageState();
+}
+
+class _PediatricianCallPageState extends State<PediatricianCallPage> {
+  final _phoneController = TextEditingController();
+  String? _savedPhone;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPhone();
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPhone() async {
+    final prefs = await SharedPreferences.getInstance();
+    final phone = prefs.getString('pediatrician_phone');
+    if (phone != null && phone.isNotEmpty) {
+      setState(() {
+        _savedPhone = phone;
+        _phoneController.text = phone;
+      });
+    }
+  }
+
+  Future<void> _savePhone() async {
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('pediatrician_phone', phone);
+    setState(() => _savedPhone = phone);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Número guardado'),
+          backgroundColor: Color(0xFF4F7A4A),
+        ),
+      );
+    }
+  }
+
+  Future<void> _callNumber(String number) async {
+    final uri = Uri(scheme: 'tel', path: number);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo realizar la llamada'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFB6D7A8),
+        title: const Text('Contacto Pediatra'),
+        foregroundColor: const Color(0xFF355334),
+      ),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0, -0.3),
+            radius: 1.2,
+            colors: isDark
+                ? [const Color(0xFF252540), const Color(0xFF1A1A2E)]
+                : [const Color(0xFFF5FFF3), const Color(0xFFE8F7E4)],
+          ),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Ícono grande
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isDark ? const Color(0xFF2A2A40) : Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF4F7A4A).withOpacity(0.2),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.medical_services_rounded,
+                  size: 50,
+                  color: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F7A4A),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Pediatra de tu bebé',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? const Color(0xFFB6D7A8) : const Color(0xFF4F7A4A),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Guarda el número de tu pediatra para llamar rápidamente.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.grey[400] : const Color(0xFF6E8F6A),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+
+              // Campo de teléfono
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF2A2A40) : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.phone_android, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Número del Pediatra',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white : const Color(0xFF4F4A4A),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.5,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Ej: +52 55 1234 5678',
+                        hintStyle: TextStyle(color: Colors.grey[400], fontSize: 18),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.grey[300]!),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFF4F7A4A), width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _savePhone,
+                      icon: const Icon(Icons.save, size: 20),
+                      label: const Text('Guardar número'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4F7A4A),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Botón de llamar al pediatra (rojo)
+              SizedBox(
+                height: 64,
+                child: ElevatedButton.icon(
+                  onPressed: _savedPhone != null
+                      ? () => _callNumber(_savedPhone!)
+                      : () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Primero guarda el número de tu pediatra'),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                        },
+                  icon: const Icon(Icons.phone, size: 28),
+                  label: Text(
+                    _savedPhone != null ? 'Llamar al Pediatra' : 'Sin número guardado',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _savedPhone != null
+                        ? const Color(0xFFE53935)
+                        : Colors.grey[400],
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Botón de emergencia 911
+              SizedBox(
+                height: 64,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+                            SizedBox(width: 8),
+                            Text('Llamar al 911'),
+                          ],
+                        ),
+                        content: const Text(
+                          '¿Estás seguro de que quieres llamar a emergencias (911)?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancelar'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _callNumber('911');
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Llamar 911'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.emergency, size: 28),
+                  label: const Text(
+                    'Emergencias 911',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFB71C1C),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Info
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF2A2A40).withOpacity(0.7)
+                      : const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isDark ? Colors.orange.withOpacity(0.3) : const Color(0xFFFFCC02),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange[700], size: 24),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Usa el botón de emergencia solo en casos de urgencia real.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark ? Colors.orange[200] : Colors.orange[800],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ============================================================================
