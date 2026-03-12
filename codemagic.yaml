@@ -64,8 +64,15 @@ workflows:
         script: cd ios && pod install --repo-update
       - name: Build iOS (no codesign)
         script: flutter build ios --release --flavor production --no-codesign
+      - name: Create unsigned IPA
+        script: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -r KOA-unsigned.ipa Payload
+          mv KOA-unsigned.ipa $CM_BUILD_DIR/
     artifacts:
-      - baby_monitor_native_app/build/ios/**/*.app
+      - baby_monitor_native_app/KOA-unsigned.ipa
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:
