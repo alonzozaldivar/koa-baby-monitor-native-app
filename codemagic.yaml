@@ -63,7 +63,7 @@ workflows:
       - name: Install CocoaPods
         script: cd ios && pod install --repo-update
       - name: Build iOS (no codesign)
-        script: flutter build ios --release --flavor production --no-codesign
+        script: flutter build ios --release --no-codesign
       - name: Create unsigned IPA
         script: |
           cd build/ios/iphoneos
@@ -102,7 +102,7 @@ workflows:
       - name: Install CocoaPods
         script: cd ios && pod install --repo-update
       - name: Build iOS (no codesign)
-        script: flutter build ios --release --flavor production --no-codesign
+        script: flutter build ios --release --no-codesign
     artifacts:
       - baby_monitor_native_app/build/app/outputs/flutter-apk/*.apk
       - baby_monitor_native_app/build/app/outputs/bundle/**/*.aab
