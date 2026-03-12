@@ -1472,18 +1472,6 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
                     const SizedBox(height: 12),
                   ],
 
-                  // Skip button
-                  if (!_authSuccess)
-                    TextButton(
-                      onPressed: _skipAuth,
-                      child: Text(
-                        appState.tr('skip_for_now'),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -1495,7 +1483,7 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
 }
 
 // ============================================================================
-// FACE REGISTRATION PAGE - Página para registrar rostro del usuario
+// FACE REGISTRATION PAGE
 // ============================================================================
 class FaceRegistrationPage extends StatefulWidget {
   const FaceRegistrationPage({super.key});
@@ -1907,18 +1895,6 @@ class _FaceRegistrationPageState extends State<FaceRegistrationPage> {
 
                   const SizedBox(height: 24),
 
-                  // Skip button
-                  if (!_registrationSuccess)
-                    TextButton(
-                      onPressed: _skipRegistration,
-                      child: Text(
-                        appState.tr('skip_for_now'),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
