@@ -621,10 +621,10 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
   }
 
   void _selectProfile() {
-    // Ir directo a la pantalla principal
+    // Ir a autenticación facial
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) => const MainNavigationPage(),
+        builder: (_) => const BiometricLoginPage(hasInfantProfile: true),
       ),
     );
   }
