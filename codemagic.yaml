@@ -1,86 +1,30 @@
 workflows:
   # ========================================
-  # WORKFLOW PARA iOS
+  # ANDROID PRODUCTION
   # ========================================
-  ios-workflow:
-    name: iOS Build
+  android-production:
+    name: Android Production
     max_build_duration: 60
-    instance_type: mac_mini_m1
-    
+    instance_type: linux_x2
+
     environment:
       flutter: stable
-      xcode: latest
-      cocoapods: default
-      
-      vars:
-        # Variables de entorno (configurar en Codemagic UI)
-        BUNDLE_ID: "com.koa.babymonitor"
-        APP_STORE_CONNECT_ISSUER_ID: Encrypted(...)  # Configurar en Codemagic
-        APP_STORE_CONNECT_KEY_IDENTIFIER: Encrypted(...)
-        APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...)
-        CERTIFICATE_PRIVATE_KEY: Encrypted(...)
-        
-      groups:
-        # Grupos de variables (configurar en Codemagic UI)
-        - app_store_credentials
-        
+      java: 17
+
     scripts:
       - name: Get Flutter packages
-        script: |
-          flutter pub get
-          
-      - name: Install CocoaPods dependencies
-        script: |
-          find . -name "Podfile" -execdir pod install \;
-          
-      - name: Flutter build iOS
-        script: |
-          flutter build ipa \
-            --release \
-            --export-options-plist=/Users/builder/export_options.plist
-            
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-      - flutter_drive.log
-      
-    publishing:
-      email:
-        recipients:
-          - alonzo.zaldivar.29@gmail.com
-        notify:
-          success: true
-          failure: true
-          
-  # ========================================
-  # WORKFLOW PARA ANDROID
-  # ========================================
-  android-workflow:
-    name: Android Build
-    max_build_duration: 60
-    instance_type: linux
-    
-    environment:
-      flutter: stable
-      java: 11
-      
-    scripts:
-      - name: Get Flutter packages
-        script: |
-          flutter pub get
-          
-      - name: Build Android APK
-        script: |
-          flutter build apk --release
-          
-      - name: Build Android App Bundle
-        script: |
-          flutter build appbundle --release
-          
+        script: flutter pub get
+
+      - name: Build Android APK (Production)
+        script: flutter build apk --release --flavor production
+
+      - name: Build Android App Bundle (Production)
+        script: flutter build appbundle --release --flavor production
+
     artifacts:
       - build/app/outputs/flutter-apk/*.apk
       - build/app/outputs/bundle/**/*.aab
-      
+
     publishing:
       email:
         recipients:
@@ -88,39 +32,129 @@ workflows:
         notify:
           success: true
           failure: true
-          
+
   # ========================================
-  # WORKFLOW PARA AMBAS PLATAFORMAS
+  # ANDROID DEMO
   # ========================================
-  all-platforms:
-    name: Build iOS & Android
-    max_build_duration: 120
+  android-demo:
+    name: Android Demo
+    max_build_duration: 60
+    instance_type: linux_x2
+
+    environment:
+      flutter: stable
+      java: 17
+
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Build Android APK (Demo)
+        script: flutter build apk --release --flavor demo
+
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - alonzo.zaldivar.29@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ========================================
+  # iOS PRODUCTION
+  # ========================================
+  ios-production:
+    name: iOS Production
+    max_build_duration: 60
     instance_type: mac_mini_m1
-    
+
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-      java: 11
-      
+
+      vars:
+        BUNDLE_ID: "com.example.baby_monitor_native_app"
+        # Configurar estas variables en Codemagic UI > Environment variables
+        # APP_STORE_CONNECT_ISSUER_ID: Encrypted(...)
+        # APP_STORE_CONNECT_KEY_IDENTIFIER: Encrypted(...)
+        # APP_STORE_CONNECT_PRIVATE_KEY: Encrypted(...)
+        # CERTIFICATE_PRIVATE_KEY: Encrypted(...)
+
     scripts:
       - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Install CocoaPods dependencies
         script: |
-          flutter pub get
-          
-      - name: Build Android APK
+          cd ios && pod install --repo-update
+
+      - name: Set up code signing (manual)
         script: |
-          flutter build apk --release
-          
-      - name: Build iOS IPA
+          xcode-project use-profiles
+
+      - name: Flutter build iOS (Production)
         script: |
-          find . -name "Podfile" -execdir pod install \;
-          flutter build ipa --release
-          
+          flutter build ipa \
+            --release \
+            --flavor production \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      email:
+        recipients:
+          - alonzo.zaldivar.29@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ========================================
+  # BUILD TODO (iOS + Android Production)
+  # ========================================
+  all-platforms:
+    name: Build iOS & Android Production
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      java: 17
+
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Build Android APK (Production)
+        script: flutter build apk --release --flavor production
+
+      - name: Build Android App Bundle (Production)
+        script: flutter build appbundle --release --flavor production
+
+      - name: Install CocoaPods
+        script: |
+          cd ios && pod install --repo-update
+
+      - name: Build iOS IPA (Production)
+        script: |
+          flutter build ipa \
+            --release \
+            --flavor production \
+            --export-options-plist=/Users/builder/export_options.plist
+
     artifacts:
       - build/app/outputs/flutter-apk/*.apk
+      - build/app/outputs/bundle/**/*.aab
       - build/ios/ipa/*.ipa
-      
+
     publishing:
       email:
         recipients:
