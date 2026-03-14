@@ -369,6 +369,71 @@ CREATE TRIGGER on_auth_user_created
   EXECUTE FUNCTION public.handle_new_user();
 
 -- ============================================================================
+-- TABLA: camera_streams (estado de cámaras para acceso remoto)
+-- ============================================================================
+CREATE TABLE public.camera_streams (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  camera_id TEXT NOT NULL,
+  camera_name TEXT NOT NULL,
+  is_online BOOLEAN DEFAULT FALSE,
+  last_frame_url TEXT,
+  last_heartbeat TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  fps INTEGER DEFAULT 2,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.camera_streams ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own streams" ON public.camera_streams
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own streams" ON public.camera_streams
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own streams" ON public.camera_streams
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own streams" ON public.camera_streams
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE UNIQUE INDEX idx_camera_streams_user_camera
+  ON public.camera_streams(user_id, camera_id);
+
+-- ============================================================================
+-- TABLA: ptz_commands (cola de comandos PTZ remotos)
+-- ============================================================================
+CREATE TABLE public.ptz_commands (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  camera_id TEXT NOT NULL,
+  command TEXT NOT NULL CHECK (command IN ('left','right','up','down','zoom_in','zoom_out','stop')),
+  executed BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.ptz_commands ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own ptz commands" ON public.ptz_commands
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own ptz commands" ON public.ptz_commands
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own ptz commands" ON public.ptz_commands
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own ptz commands" ON public.ptz_commands
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE INDEX idx_ptz_commands_pending
+  ON public.ptz_commands(user_id, camera_id, executed)
+  WHERE executed = FALSE;
+
+-- Función para limpiar frames viejos (ejecutar periódicamente)
+CREATE OR REPLACE FUNCTION clean_old_ptz_commands()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM public.ptz_commands
+  WHERE created_at < NOW() - INTERVAL '5 minutes';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
 -- GRANTS (Permisos)
 -- ============================================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;

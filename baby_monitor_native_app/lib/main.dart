@@ -35,6 +35,7 @@ import 'config/supabase_client.dart';
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
 import 'services/subscription_service.dart';
+import 'services/camera_relay_service.dart';
 import 'screens/premium_paywall_page.dart';
 
 // Pantallas de autenticación
@@ -304,6 +305,25 @@ class AppState extends ChangeNotifier {
       'role_grandparent': {'es': 'Abuelo/a', 'en': 'Grandparent'},
       'role_nanny': {'es': 'Niñera', 'en': 'Nanny'},
       'role_other': {'es': 'Otro', 'en': 'Other'},
+      // Multi-camera & TV-628
+      'my_cameras': {'es': 'Mis cámaras', 'en': 'My cameras'},
+      'grid_view': {'es': 'Vista múltiple', 'en': 'Grid view'},
+      'select_camera': {'es': 'Selecciona una cámara', 'en': 'Select a camera'},
+      'camera_preset': {'es': 'Modelo de cámara', 'en': 'Camera model'},
+      'preset_generic': {'es': 'Genérica', 'en': 'Generic'},
+      'preset_easytao': {'es': 'Easytao TV-628', 'en': 'Easytao TV-628'},
+      'preset_droidcam': {'es': 'DroidCam', 'en': 'DroidCam'},
+      'onvif_port': {'es': 'Puerto ONVIF', 'en': 'ONVIF Port'},
+      'quality_hd': {'es': 'Alta calidad (HD)', 'en': 'High quality (HD)'},
+      'quality_sd': {'es': 'Baja calidad (SD)', 'en': 'Low quality (SD)'},
+      'sub_stream_path': {'es': 'Ruta sub-stream', 'en': 'Sub-stream path'},
+      // Remote relay
+      'mode_local': {'es': 'Local', 'en': 'Local'},
+      'mode_remote': {'es': 'Remoto', 'en': 'Remote'},
+      'remote_connecting': {'es': 'Conectando modo remoto...', 'en': 'Connecting remote mode...'},
+      'remote_offline': {'es': 'Cámara remota sin conexión', 'en': 'Remote camera offline'},
+      'remote_no_bridge': {'es': 'Home Bridge no detectado. Ejecuta bridge.py en tu PC.', 'en': 'Home Bridge not detected. Run bridge.py on your PC.'},
+      'remote_latency': {'es': 'Latencia', 'en': 'Latency'},
     };
     return translations[key]?[isSpanish ? 'es' : 'en'] ?? key;
   }
@@ -5532,6 +5552,7 @@ class CameraConfig {
   final CameraProtocol protocol;
   final int rtspPort;
   final String rtspPath;
+  final String rtspPathSub;
   final int httpPort;
   final String httpPath;
   final String username;
@@ -5546,29 +5567,31 @@ class CameraConfig {
     required this.host,
     this.protocol = CameraProtocol.rtsp,
     this.rtspPort = 554,
-    this.rtspPath = '/stream1',
+    this.rtspPath = '/onvif1',
+    this.rtspPathSub = '/onvif2',
     this.httpPort = 4747,
     this.httpPath = '/video',
-    this.username = '',
+    this.username = 'admin',
     this.password = '',
-    this.onvifPort = 80,
+    this.onvifPort = 8899,
     this.hasPTZ = true,
     this.hasAudio = true,
   });
 
-  String get streamUrl {
+  /// Genera la URL del stream según calidad seleccionada.
+  String getStreamUrl({bool highQuality = true}) {
     if (protocol == CameraProtocol.http) {
-      // HTTP/MJPEG (para DroidCam y similares)
       return 'http://$host:$httpPort$httpPath';
     } else {
-      // RTSP (cámaras IP tradicionales)
       final auth = username.isNotEmpty ? '$username:$password@' : '';
-      return 'rtsp://$auth$host:$rtspPort$rtspPath';
+      final path = highQuality ? rtspPath : rtspPathSub;
+      return 'rtsp://$auth$host:$rtspPort$path';
     }
   }
 
-  // Mantener compatibilidad con código existente
-  String get rtspUrl => streamUrl;
+  // Backward compatibility
+  String get streamUrl => getStreamUrl();
+  String get rtspUrl => getStreamUrl();
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -5577,6 +5600,7 @@ class CameraConfig {
     'protocol': protocol.name,
     'rtspPort': rtspPort,
     'rtspPath': rtspPath,
+    'rtspPathSub': rtspPathSub,
     'httpPort': httpPort,
     'httpPath': httpPath,
     'username': username,
@@ -5597,12 +5621,13 @@ class CameraConfig {
           )
         : CameraProtocol.rtsp,
     rtspPort: json['rtspPort'] ?? 554,
-    rtspPath: json['rtspPath'] ?? '/stream1',
+    rtspPath: json['rtspPath'] ?? '/onvif1',
+    rtspPathSub: json['rtspPathSub'] ?? '/onvif2',
     httpPort: json['httpPort'] ?? 4747,
     httpPath: json['httpPath'] ?? '/video',
-    username: json['username'] ?? '',
+    username: json['username'] ?? 'admin',
     password: json['password'] ?? '',
-    onvifPort: json['onvifPort'] ?? 80,
+    onvifPort: json['onvifPort'] ?? 8899,
     hasPTZ: json['hasPTZ'] ?? true,
     hasAudio: json['hasAudio'] ?? true,
   );
@@ -5621,62 +5646,135 @@ class CameraMonitorPage extends StatefulWidget {
 }
 
 class _CameraMonitorPageState extends State<CameraMonitorPage> {
-  CameraConfig? _cameraConfig;
+  // === Multi-cámara ===
+  List<CameraConfig> _cameraConfigs = [];
+  int _selectedCameraIndex = -1; // -1 = vista de lista
+  bool _isGridView = false;
+  bool _isHighQuality = true; // HD vs SD
+
   CameraConnectionState _connectionState = CameraConnectionState.disconnected;
   String _errorMessage = '';
   bool _isLoading = true;
   bool _isFullscreen = false;
   bool _showControls = true;
-  
+
   // Media Kit
   Player? _player;
   VideoController? _videoController;
 
+  // === Modo remoto ===
+  bool _isRemoteMode = false;
+  Uint8List? _remoteFrame;
+  StreamSubscription<Uint8List>? _remoteFrameSub;
+  StreamSubscription<RemoteCameraState>? _remoteStateSub;
+  RemoteCameraState? _remoteCameraState;
+
+  /// Getter de compatibilidad: cámara seleccionada actualmente
+  CameraConfig? get _cameraConfig =>
+      _selectedCameraIndex >= 0 && _selectedCameraIndex < _cameraConfigs.length
+          ? _cameraConfigs[_selectedCameraIndex]
+          : null;
+
   @override
   void initState() {
     super.initState();
-    _loadCameraConfig();
+    _loadCameraConfigs();
   }
 
   @override
   void dispose() {
     _player?.dispose();
+    _stopRemoteMode();
     super.dispose();
   }
 
-  Future<void> _loadCameraConfig() async {
+  // ---------- Persistencia multi-cámara ----------
+
+  Future<void> _loadCameraConfigs() async {
     final prefs = await SharedPreferences.getInstance();
-    final configJson = prefs.getString('camera_config');
-    
-    if (configJson != null) {
+
+    // 1. Intentar formato nuevo (lista)
+    final configsJson = prefs.getString('camera_configs');
+    if (configsJson != null) {
       try {
-        final config = CameraConfig.fromJson(jsonDecode(configJson));
-        setState(() {
-          _cameraConfig = config;
-          _isLoading = false;
-        });
-        // Auto-conectar si hay configuración guardada
-        _connectToCamera();
+        final list = jsonDecode(configsJson) as List;
+        _cameraConfigs = list.map((e) => CameraConfig.fromJson(e as Map<String, dynamic>)).toList();
       } catch (e) {
-        setState(() => _isLoading = false);
+        debugPrint('Error cargando camera_configs: $e');
       }
-    } else {
-      setState(() => _isLoading = false);
     }
+
+    // 2. Migración: formato viejo (una sola cámara)
+    if (_cameraConfigs.isEmpty) {
+      final oldJson = prefs.getString('camera_config');
+      if (oldJson != null) {
+        try {
+          final config = CameraConfig.fromJson(jsonDecode(oldJson) as Map<String, dynamic>);
+          _cameraConfigs = [config];
+          await _saveCameraConfigs();
+          await prefs.remove('camera_config');
+          debugPrint('✅ Migrada config de cámara al formato multi-cámara');
+        } catch (e) {
+          debugPrint('Error migrando camera_config: $e');
+        }
+      }
+    }
+
+    setState(() {
+      _isLoading = false;
+      // Auto-seleccionar si solo hay una
+      if (_cameraConfigs.length == 1) _selectedCameraIndex = 0;
+    });
+
+    // Auto-conectar si solo hay una
+    if (_cameraConfigs.length == 1) _connectToCamera();
+  }
+
+  Future<void> _saveCameraConfigs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = _cameraConfigs.map((c) => c.toJson()).toList();
+    await prefs.setString('camera_configs', jsonEncode(jsonList));
   }
 
   Future<void> _saveCameraConfig(CameraConfig config) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('camera_config', jsonEncode(config.toJson()));
-    setState(() => _cameraConfig = config);
+    final idx = _cameraConfigs.indexWhere((c) => c.id == config.id);
+    if (idx >= 0) {
+      _cameraConfigs[idx] = config;
+    } else {
+      _cameraConfigs.add(config);
+    }
+    await _saveCameraConfigs();
+    setState(() {});
   }
 
-  Future<void> _deleteCameraConfig() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('camera_config');
+  Future<void> _deleteCameraConfig(String id) async {
     _disconnectCamera();
-    setState(() => _cameraConfig = null);
+    _cameraConfigs.removeWhere((c) => c.id == id);
+    await _saveCameraConfigs();
+    setState(() => _selectedCameraIndex = -1);
   }
+
+  // ---------- Selección / navegación ----------
+
+  void _selectCamera(int index) {
+    setState(() => _selectedCameraIndex = index);
+    _connectToCamera();
+  }
+
+  void _backToList() {
+    _disconnectCamera();
+    setState(() {
+      _selectedCameraIndex = -1;
+      _isGridView = false;
+    });
+  }
+
+  void _toggleQuality() {
+    setState(() => _isHighQuality = !_isHighQuality);
+    _connectToCamera(); // Reconectar con la otra calidad
+  }
+
+  // ---------- Conexión ----------
 
   Future<void> _connectToCamera() async {
     if (_cameraConfig == null) return;
@@ -5688,55 +5786,52 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
 
     try {
       if (_cameraConfig!.protocol == CameraProtocol.http) {
-        // Para HTTP/MJPEG (DroidCam), no usamos Media Kit
-        // Solo marcamos como conectado para mostrar la imagen
         setState(() => _connectionState = CameraConnectionState.connected);
       } else {
-        // RTSP: usar Media Kit
         _player?.dispose();
         _player = Player();
         _videoController = VideoController(_player!);
 
-        await _player!.open(
-          Media(_cameraConfig!.streamUrl),
-          play: true,
-        );
+        final url = _cameraConfig!.getStreamUrl(highQuality: _isHighQuality);
+        debugPrint('📹 Conectando a: $url');
 
-        // Escuchar errores
+        // Configurar listeners y timeout ANTES de open (open puede colgar)
         _player!.stream.error.listen((error) {
-          if (mounted) {
-            setState(() {
-              _connectionState = CameraConnectionState.error;
-              _errorMessage = error;
-            });
+          if (mounted && !_isRemoteMode) {
+            debugPrint('📡 RTSP error, cambiando a modo remoto: $error');
+            _player?.stop();
+            _player?.dispose();
+            _player = null;
+            _videoController = null;
+            _tryRemoteMode();
           }
         });
 
-        // Escuchar cuando empiece a reproducir
         _player!.stream.playing.listen((playing) {
           if (mounted && playing) {
             setState(() => _connectionState = CameraConnectionState.connected);
           }
         });
 
-        // Timeout de conexión
-        Future.delayed(const Duration(seconds: 15), () {
+        // Timeout: si no conecta en 8s, cambiar a modo remoto
+        Future.delayed(const Duration(seconds: 8), () {
           if (mounted && _connectionState == CameraConnectionState.connecting) {
-            setState(() {
-              _connectionState = CameraConnectionState.error;
-              _errorMessage = 'Tiempo de espera agotado';
-            });
+            debugPrint('📡 RTSP timeout, intentando modo remoto...');
+            _player?.stop();
+            _player?.dispose();
+            _player = null;
+            _videoController = null;
+            _tryRemoteMode();
           }
         });
-      }
 
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _connectionState = CameraConnectionState.error;
-          _errorMessage = e.toString();
-        });
+        // No usar await — open() puede colgarse en IPs inalcanzables
+        _player!.open(Media(url), play: true);
       }
+    } catch (e) {
+      // RTSP falló → intentar modo remoto
+      debugPrint('📡 RTSP error, intentando modo remoto: $e');
+      _tryRemoteMode();
     }
   }
 
@@ -5745,29 +5840,120 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
     _player?.dispose();
     _player = null;
     _videoController = null;
+    _stopRemoteMode();
     if (mounted) {
       setState(() => _connectionState = CameraConnectionState.disconnected);
     }
   }
 
-  void _showConfigSheet(BuildContext context) {
+  // ---------- Modo remoto (relay via Supabase) ----------
+
+  Future<void> _tryRemoteMode() async {
+    if (_cameraConfig == null) return;
+
+    setState(() {
+      _connectionState = CameraConnectionState.connecting;
+      _errorMessage = '';
+    });
+
+    try {
+      // Buscar la cámara en Supabase (por ID, nombre, o primera online)
+      final remote = await CameraRelayService.instance.findRemoteCamera(
+        _cameraConfig!.id,
+        cameraName: _cameraConfig!.name,
+      );
+
+      if (remote == null || !remote.isActive) {
+        if (mounted) {
+          setState(() {
+            _connectionState = CameraConnectionState.error;
+            _isRemoteMode = false;
+            _errorMessage = remote == null
+                ? Provider.of<AppState>(context, listen: false).tr('remote_no_bridge')
+                : Provider.of<AppState>(context, listen: false).tr('remote_offline');
+          });
+        }
+        return;
+      }
+
+      // Iniciar polling de frames remotos
+      _isRemoteMode = true;
+      _remoteCameraState = remote;
+
+      _remoteFrameSub = CameraRelayService.instance.frameStream.listen((frame) {
+        if (mounted) {
+          setState(() {
+            _remoteFrame = frame;
+            _connectionState = CameraConnectionState.connected;
+          });
+        }
+      });
+
+      _remoteStateSub = CameraRelayService.instance.stateStream.listen((state) {
+        if (mounted) {
+          setState(() => _remoteCameraState = state);
+          if (!state.isActive && _connectionState == CameraConnectionState.connected) {
+            setState(() {
+              _connectionState = CameraConnectionState.error;
+              _errorMessage = Provider.of<AppState>(context, listen: false).tr('remote_offline');
+            });
+          }
+        }
+      });
+
+      // Usar el cameraId del bridge (no el de la app) para polling y PTZ
+      CameraRelayService.instance.startPolling(remote.cameraId, fps: remote.fps);
+
+      if (mounted) {
+        setState(() => _connectionState = CameraConnectionState.connected);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _connectionState = CameraConnectionState.error;
+          _errorMessage = e.toString();
+          _isRemoteMode = false;
+        });
+      }
+    }
+  }
+
+  void _stopRemoteMode() {
+    _remoteFrameSub?.cancel();
+    _remoteStateSub?.cancel();
+    _remoteFrameSub = null;
+    _remoteStateSub = null;
+    CameraRelayService.instance.stopPolling();
+    _isRemoteMode = false;
+    _remoteFrame = null;
+    _remoteCameraState = null;
+  }
+
+  void _showConfigSheet(BuildContext context, {int? cameraIndex}) {
     final appState = Provider.of<AppState>(context, listen: false);
+    final existingConfig = cameraIndex != null ? _cameraConfigs[cameraIndex] : null;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _CameraConfigSheet(
         appState: appState,
-        existingConfig: _cameraConfig,
+        existingConfig: existingConfig,
         onSave: (config) async {
           Navigator.pop(ctx);
           await _saveCameraConfig(config);
-          _connectToCamera();
+          // Auto-seleccionar y conectar
+          final newIdx = _cameraConfigs.indexWhere((c) => c.id == config.id);
+          if (newIdx >= 0) {
+            _selectCamera(newIdx);
+          }
         },
-        onDelete: _cameraConfig != null ? () async {
-          Navigator.pop(ctx);
-          await _deleteCameraConfig();
-        } : null,
+        onDelete: existingConfig != null
+            ? () async {
+                Navigator.pop(ctx);
+                await _deleteCameraConfig(existingConfig.id);
+              }
+            : null,
       ),
     );
   }
@@ -5803,9 +5989,15 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
     }
   }
 
-  // Enviar comando PTZ via ONVIF
+  // Enviar comando PTZ via ONVIF (local) o Supabase (remoto)
   Future<void> _sendPTZCommand(String direction) async {
     if (_cameraConfig == null) return;
+
+    // Modo remoto → enviar via Supabase
+    if (_isRemoteMode && _remoteCameraState != null) {
+      CameraRelayService.instance.sendPTZCommand(_remoteCameraState!.cameraId, direction);
+      return;
+    }
     
     // Valores de movimiento
     double x = 0, y = 0, zoom = 0;
@@ -5836,10 +6028,14 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
 
     try {
       final url = 'http://${_cameraConfig!.host}:${_cameraConfig!.onvifPort}/onvif/ptz_service';
+      final authHeader = _cameraConfig!.username.isNotEmpty
+          ? 'Basic ${base64Encode(utf8.encode('${_cameraConfig!.username}:${_cameraConfig!.password}'))}'
+          : null;
       await http.post(
         Uri.parse(url),
         headers: {
           'Content-Type': 'application/soap+xml; charset=utf-8',
+          if (authHeader != null) 'Authorization': authHeader,
         },
         body: soapBody,
       );
@@ -5850,6 +6046,12 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
 
   Future<void> _stopPTZ() async {
     if (_cameraConfig == null) return;
+
+    // Modo remoto → enviar stop via Supabase
+    if (_isRemoteMode && _remoteCameraState != null) {
+      CameraRelayService.instance.stopPTZ(_remoteCameraState!.cameraId);
+      return;
+    }
 
     final soapBody = '''
 <?xml version="1.0" encoding="utf-8"?>
@@ -5866,9 +6068,15 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
 
     try {
       final url = 'http://${_cameraConfig!.host}:${_cameraConfig!.onvifPort}/onvif/ptz_service';
+      final authHeader = _cameraConfig!.username.isNotEmpty
+          ? 'Basic ${base64Encode(utf8.encode('${_cameraConfig!.username}:${_cameraConfig!.password}'))}'
+          : null;
       await http.post(
         Uri.parse(url),
-        headers: {'Content-Type': 'application/soap+xml; charset=utf-8'},
+        headers: {
+          'Content-Type': 'application/soap+xml; charset=utf-8',
+          if (authHeader != null) 'Authorization': authHeader,
+        },
         body: soapBody,
       );
     } catch (e) {
@@ -5890,12 +6098,22 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
       );
     }
 
-    // Si no hay cámara configurada, mostrar pantalla de configuración
-    if (_cameraConfig == null) {
+    // Sin cámaras configuradas
+    if (_cameraConfigs.isEmpty) {
       return _buildNoCameraView(context, appState, isDark);
     }
 
-    // Vista de monitoreo
+    // Vista grid (todas las cámaras simultáneas)
+    if (_isGridView) {
+      return _buildGridView(context, appState, isDark);
+    }
+
+    // Vista lista (selección de cámara)
+    if (_selectedCameraIndex < 0) {
+      return _buildCameraListView(context, appState, isDark);
+    }
+
+    // Vista de monitoreo de una cámara
     return _isFullscreen
         ? _buildFullscreenView(context, appState)
         : _buildNormalView(context, appState, isDark);
@@ -5977,7 +6195,13 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
         backgroundColor: Colors.black87,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (_cameraConfigs.length > 1) {
+              _backToList();
+            } else {
+              Navigator.pop(context);
+            }
+          },
         ),
         title: Row(
           children: [
@@ -5990,12 +6214,54 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            // Badge Local / Remoto
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: _isRemoteMode ? Colors.blue : const Color(0xFF4CAF50),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                _isRemoteMode ? appState.tr('mode_remote') : appState.tr('mode_local'),
+                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+              ),
+            ),
           ],
         ),
         actions: [
+          // Toggle HD / SD (solo RTSP local)
+          if (!_isRemoteMode && _cameraConfig!.protocol == CameraProtocol.rtsp)
+            IconButton(
+              tooltip: _isHighQuality ? appState.tr('quality_sd') : appState.tr('quality_hd'),
+              onPressed: _toggleQuality,
+              icon: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _isHighQuality ? const Color(0xFF4CAF50) : Colors.orange,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  _isHighQuality ? 'HD' : 'SD',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                ),
+              ),
+            ),
+          // Grid view (si hay más de 1 cámara)
+          if (_cameraConfigs.length >= 2)
+            IconButton(
+              icon: const Icon(Icons.grid_view, color: Colors.white),
+              tooltip: appState.tr('grid_view'),
+              onPressed: () {
+                _disconnectCamera();
+                setState(() {
+                  _selectedCameraIndex = -1;
+                  _isGridView = true;
+                });
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white),
-            onPressed: () => _showConfigSheet(context),
+            onPressed: () => _showConfigSheet(context, cameraIndex: _selectedCameraIndex),
           ),
         ],
       ),
@@ -6138,6 +6404,14 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
           Colors.redAccent,
         );
       case CameraConnectionState.connected:
+        // Modo remoto: mostrar frame JPEG
+        if (_isRemoteMode && _remoteFrame != null) {
+          return Image.memory(
+            _remoteFrame!,
+            fit: BoxFit.contain,
+            gaplessPlayback: true, // Evita parpadeo entre frames
+          );
+        }
         if (_cameraConfig!.protocol == CameraProtocol.http) {
           // HTTP/MJPEG stream
           return _MjpegWidget(url: _cameraConfig!.streamUrl);
@@ -6271,6 +6545,226 @@ class _CameraMonitorPageState extends State<CameraMonitorPage> {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon, color: Colors.white, size: 24),
+      ),
+    );
+  }
+
+  // ==========================================================================
+  // VISTA LISTA DE CÁMARAS
+  // ==========================================================================
+  Widget _buildCameraListView(BuildContext context, AppState appState, bool isDark) {
+    return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF1A1A2E) : const Color(0xFFF5FFF3),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFB6D7A8),
+        title: Text(appState.tr('my_cameras')),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          if (_cameraConfigs.length >= 2)
+            IconButton(
+              icon: const Icon(Icons.grid_view),
+              tooltip: appState.tr('grid_view'),
+              onPressed: () => setState(() => _isGridView = true),
+            ),
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: appState.tr('add_camera'),
+            onPressed: () => _showConfigSheet(context),
+          ),
+        ],
+      ),
+      body: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _cameraConfigs.length,
+        itemBuilder: (context, index) {
+          final config = _cameraConfigs[index];
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            color: isDark ? const Color(0xFF252540) : Colors.white,
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              leading: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB6D7A8).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.videocam, color: Color(0xFF4F7A4A)),
+              ),
+              title: Text(
+                config.name,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : const Color(0xFF4F4A4A),
+                ),
+              ),
+              subtitle: Text(
+                '${config.host} • ${config.protocol == CameraProtocol.rtsp ? "RTSP" : "HTTP"}',
+                style: TextStyle(color: isDark ? Colors.white54 : Colors.grey[600], fontSize: 13),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.settings, color: isDark ? Colors.white54 : Colors.grey),
+                    onPressed: () => _showConfigSheet(context, cameraIndex: index),
+                  ),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+              onTap: () => _selectCamera(index),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ==========================================================================
+  // VISTA GRID (TODAS LAS CÁMARAS SIMULTÁNEAS)
+  // ==========================================================================
+  Widget _buildGridView(BuildContext context, AppState appState, bool isDark) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black87,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => _backToList(),
+        ),
+        title: Text(
+          appState.tr('grid_view'),
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add, color: Colors.white),
+            onPressed: () => _showConfigSheet(context),
+          ),
+        ],
+      ),
+      body: GridView.builder(
+        padding: const EdgeInsets.all(4),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: _cameraConfigs.length <= 2 ? 1 : 2,
+          crossAxisSpacing: 4,
+          mainAxisSpacing: 4,
+          childAspectRatio: 16 / 10,
+        ),
+        itemCount: _cameraConfigs.length,
+        itemBuilder: (context, index) {
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _isGridView = false;
+              });
+              _selectCamera(index);
+            },
+            child: _CameraStreamWidget(
+              key: ValueKey(_cameraConfigs[index].id),
+              config: _cameraConfigs[index],
+              highQuality: false, // Sub-stream en grid para mejor rendimiento
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// CAMERA STREAM WIDGET - Widget independiente para vista grid
+// ============================================================================
+class _CameraStreamWidget extends StatefulWidget {
+  final CameraConfig config;
+  final bool highQuality;
+
+  const _CameraStreamWidget({
+    super.key,
+    required this.config,
+    this.highQuality = false,
+  });
+
+  @override
+  State<_CameraStreamWidget> createState() => _CameraStreamWidgetState();
+}
+
+class _CameraStreamWidgetState extends State<_CameraStreamWidget> {
+  Player? _player;
+  VideoController? _videoController;
+  bool _isConnected = false;
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _connect();
+  }
+
+  @override
+  void dispose() {
+    _player?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _connect() async {
+    try {
+      final url = widget.config.getStreamUrl(highQuality: widget.highQuality);
+
+      if (widget.config.protocol == CameraProtocol.http) {
+        if (mounted) setState(() => _isConnected = true);
+      } else {
+        _player = Player();
+        _videoController = VideoController(_player!);
+        await _player!.open(Media(url), play: true);
+
+        _player!.stream.playing.listen((playing) {
+          if (mounted && playing) setState(() => _isConnected = true);
+        });
+        _player!.stream.error.listen((error) {
+          if (mounted) setState(() => _hasError = true);
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _hasError = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black,
+      child: Stack(
+        children: [
+          if (_isConnected && widget.config.protocol == CameraProtocol.http)
+            _MjpegWidget(url: widget.config.getStreamUrl(highQuality: widget.highQuality))
+          else if (_isConnected && _videoController != null)
+            Video(controller: _videoController!, fit: BoxFit.contain)
+          else if (_hasError)
+            const Center(child: Icon(Icons.error_outline, color: Colors.redAccent, size: 32))
+          else
+            const Center(child: CircularProgressIndicator(color: Color(0xFFB6D7A8), strokeWidth: 2)),
+          // Nombre de cámara
+          Positioned(
+            left: 8,
+            bottom: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                widget.config.name,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -6470,12 +6964,15 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
   final _hostController = TextEditingController();
   final _portController = TextEditingController();
   final _pathController = TextEditingController();
+  final _subPathController = TextEditingController();
+  final _onvifPortController = TextEditingController();
   final _userController = TextEditingController();
   final _passController = TextEditingController();
   bool _showPassword = false;
   bool _hasPTZ = true;
   bool _hasAudio = true;
   CameraProtocol _protocol = CameraProtocol.rtsp;
+  String _selectedPreset = 'generic'; // generic, easytao, droidcam
 
   @override
   void initState() {
@@ -6492,14 +6989,52 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
         _portController.text = c.rtspPort.toString();
         _pathController.text = c.rtspPath;
       }
+      _subPathController.text = c.rtspPathSub;
+      _onvifPortController.text = c.onvifPort.toString();
       _userController.text = c.username;
       _passController.text = c.password;
       _hasPTZ = c.hasPTZ;
       _hasAudio = c.hasAudio;
     } else {
-      _portController.text = '554';
-      _pathController.text = '/stream1';
+      // Defaults TV-628 (preset por defecto)
+      _applyPreset('easytao');
     }
+  }
+
+  void _applyPreset(String preset) {
+    _selectedPreset = preset;
+    switch (preset) {
+      case 'easytao':
+        _protocol = CameraProtocol.rtsp;
+        _portController.text = '554';
+        _pathController.text = '/onvif1';
+        _subPathController.text = '/onvif2';
+        _onvifPortController.text = '8899';
+        _userController.text = 'admin';
+        _hasPTZ = true;
+        _hasAudio = true;
+        break;
+      case 'droidcam':
+        _protocol = CameraProtocol.http;
+        _portController.text = '4747';
+        _pathController.text = '/video';
+        _subPathController.text = '';
+        _onvifPortController.text = '';
+        _userController.text = '';
+        _hasPTZ = false;
+        _hasAudio = false;
+        break;
+      default: // generic
+        _protocol = CameraProtocol.rtsp;
+        _portController.text = '554';
+        _pathController.text = '/onvif1';
+        _subPathController.text = '/onvif2';
+        _onvifPortController.text = '8899';
+        _userController.text = 'admin';
+        _hasPTZ = true;
+        _hasAudio = true;
+    }
+    setState(() {});
   }
 
   @override
@@ -6508,6 +7043,8 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
     _hostController.dispose();
     _portController.dispose();
     _pathController.dispose();
+    _subPathController.dispose();
+    _onvifPortController.dispose();
     _userController.dispose();
     _passController.dispose();
     super.dispose();
@@ -6525,9 +7062,11 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
     }
 
     final port = int.tryParse(_portController.text) ?? (_protocol == CameraProtocol.http ? 4747 : 554);
-    final path = _pathController.text.trim().isEmpty 
-        ? (_protocol == CameraProtocol.http ? '/video' : '/stream1') 
+    final path = _pathController.text.trim().isEmpty
+        ? (_protocol == CameraProtocol.http ? '/video' : '/onvif1')
         : _pathController.text.trim();
+    final subPath = _subPathController.text.trim().isEmpty ? '/onvif2' : _subPathController.text.trim();
+    final onvifPort = int.tryParse(_onvifPortController.text) ?? 8899;
 
     final config = CameraConfig(
       id: widget.existingConfig?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -6535,11 +7074,13 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
       host: _hostController.text.trim(),
       protocol: _protocol,
       rtspPort: _protocol == CameraProtocol.rtsp ? port : (widget.existingConfig?.rtspPort ?? 554),
-      rtspPath: _protocol == CameraProtocol.rtsp ? path : (widget.existingConfig?.rtspPath ?? '/stream1'),
+      rtspPath: _protocol == CameraProtocol.rtsp ? path : (widget.existingConfig?.rtspPath ?? '/onvif1'),
+      rtspPathSub: subPath,
       httpPort: _protocol == CameraProtocol.http ? port : (widget.existingConfig?.httpPort ?? 4747),
       httpPath: _protocol == CameraProtocol.http ? path : (widget.existingConfig?.httpPath ?? '/video'),
       username: _userController.text.trim(),
       password: _passController.text,
+      onvifPort: onvifPort,
       hasPTZ: _hasPTZ,
       hasAudio: _hasAudio,
     );
@@ -6595,6 +7136,46 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
               ],
             ),
             const SizedBox(height: 24),
+            // === Selector de preset ===
+            if (widget.existingConfig == null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey[300]!),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.devices, color: Color(0xFF4F7A4A), size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          tr('camera_preset'),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF4F4A4A),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _buildPresetChip('easytao', tr('preset_easytao'), Icons.videocam),
+                        const SizedBox(width: 8),
+                        _buildPresetChip('droidcam', tr('preset_droidcam'), Icons.phone_android),
+                        const SizedBox(width: 8),
+                        _buildPresetChip('generic', tr('preset_generic'), Icons.settings),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             // Nombre
             _buildTextField(
               controller: _nameController,
@@ -6688,6 +7269,32 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
               ],
             ),
             const SizedBox(height: 16),
+            // Sub-stream path (solo RTSP)
+            if (_protocol == CameraProtocol.rtsp) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildTextField(
+                      controller: _subPathController,
+                      label: tr('sub_stream_path'),
+                      hint: '/onvif2',
+                      icon: Icons.sd,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildTextField(
+                      controller: _onvifPortController,
+                      label: tr('onvif_port'),
+                      hint: '8899',
+                      icon: Icons.settings_ethernet,
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
             // Usuario
             _buildTextField(
               controller: _userController,
@@ -6817,7 +7424,7 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
   String _buildPreviewUrl() {
     final host = _hostController.text.isEmpty ? 'IP' : _hostController.text;
     final defaultPort = _protocol == CameraProtocol.rtsp ? '554' : '4747';
-    final defaultPath = _protocol == CameraProtocol.rtsp ? '/stream1' : '/video';
+    final defaultPath = _protocol == CameraProtocol.rtsp ? '/onvif1' : '/video';
     final port = _portController.text.isEmpty ? defaultPort : _portController.text;
     final path = _pathController.text.isEmpty ? defaultPath : _pathController.text;
     
@@ -6878,7 +7485,7 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
             _pathController.text = '/video';
           } else {
             _portController.text = '554';
-            _pathController.text = '/stream1';
+            _pathController.text = '/onvif1';
           }
         });
       },
@@ -6919,6 +7526,42 @@ class _CameraConfigSheetState extends State<_CameraConfigSheet> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPresetChip(String presetId, String label, IconData icon) {
+    final isSelected = _selectedPreset == presetId;
+    return Expanded(
+      child: InkWell(
+        onTap: () => _applyPreset(presetId),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF4F7A4A).withValues(alpha: 0.12) : Colors.transparent,
+            border: Border.all(
+              color: isSelected ? const Color(0xFF4F7A4A) : Colors.grey[300]!,
+              width: isSelected ? 2 : 1,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, size: 20, color: isSelected ? const Color(0xFF4F7A4A) : Colors.grey),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected ? const Color(0xFF4F7A4A) : Colors.grey[700],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
