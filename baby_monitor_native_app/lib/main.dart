@@ -960,19 +960,18 @@ class _IntroVideoPageState extends State<IntroVideoPage> {
   }
 
   Future<void> _goNext() async {
-    if (_hasNavigated && mounted) {
-      // Marcar que ya vio el video intro
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('has_seen_intro', true);
-      debugPrint('✅ Video intro completado');
-      
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => const WelcomeScreen(),
-          ),
-        );
-      }
+    if (!mounted || _hasNavigated) return;
+    _hasNavigated = true;
+    // Marcar que ya vio el video intro
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_seen_intro', true);
+    debugPrint('\u2705 Video intro: navegando a WelcomeScreen');
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => const WelcomeScreen(),
+        ),
+      );
     }
   }
 
