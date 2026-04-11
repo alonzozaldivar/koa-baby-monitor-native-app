@@ -121,22 +121,56 @@ class PremiumPaywallPage extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    Text(
-                      'COP 14.900 / mes',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: isDark
-                            ? const Color(0xFFB6D7A8)
-                            : const Color(0xFF4F7A4A),
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'MXN ',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: isDark
+                                ? const Color(0xFFB6D7A8)
+                                : const Color(0xFF4F7A4A),
+                          ),
+                        ),
+                        Text(
+                          '\$199',
+                          style: TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.w900,
+                            color: isDark
+                                ? const Color(0xFFB6D7A8)
+                                : const Color(0xFF4F7A4A),
+                            height: 1.0,
+                          ),
+                        ),
+                        Text(
+                          ' / mes',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: isDark ? Colors.white60 : Colors.grey[600],
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'o COP 99.900 / año  (ahorra 44%)',
+                      'o MXN \$1,499 / año  (ahorra 37%)',
                       style: TextStyle(
                         fontSize: 13,
                         color: isDark ? Colors.white60 : Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Precio en pesos mexicanos. Cancela cuando quieras.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.white38 : Colors.grey[500],
                       ),
                     ),
                   ],

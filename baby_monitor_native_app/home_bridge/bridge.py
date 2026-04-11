@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-KOA Home Bridge v1.1 - Puente entre cámaras locales y Supabase.
+KOA Home Bridge v1.2 - Puente entre cámaras locales y Supabase.
 
 Usa API REST directa de Supabase (sin SDK) para máxima compatibilidad.
 
@@ -8,6 +8,13 @@ Usa API REST directa de Supabase (sin SDK) para máxima compatibilidad.
   2. Sube frames JPEG a Supabase Storage
   3. Actualiza la tabla camera_streams con heartbeat
   4. Escucha comandos PTZ desde ptz_commands y los ejecuta via ONVIF
+
+Cambios v1.2:
+  - RTSP sobre TCP por defecto (más estable que UDP en redes locales)
+  - Timeout de conexión reducido a 8 s (antes: 30 s de FFmpeg por defecto)
+  - Fallback automático TCP → UDP si la primera conexión falla
+  - Log de URL segura (sin contraseña visible)
+  - Config: campo opcional "rtsp_transport": "tcp" | "udp"
 """
 
 import os
@@ -32,7 +39,8 @@ STORAGE_BUCKET = "camera-streams"
 FRAME_QUALITY = 70
 MAX_FRAME_SIZE = 150_000
 HEARTBEAT_INTERVAL = 10
-RECONNECT_DELAY = 5
+RECONNECT_DELAY = 3
+RTSP_OPEN_TIMEOUT_US = 8_000_000   # 8 segundos en microsegundos
 CLEANUP_INTERVAL = 60
 
 logging.basicConfig(
@@ -218,7 +226,7 @@ def load_config() -> dict:
             "supabase_anon_key": "eyJ...",
             "user_email": "tu@email.com",
             "user_password": "tu_contraseña",
-            "cameras": [
+        "cameras": [
                 {
                     "id": "cam_1",
                     "name": "Habitación Bebé",
@@ -229,6 +237,7 @@ def load_config() -> dict:
                     "password": "",
                     "onvif_port": 8899,
                     "fps": 2,
+                    "rtsp_transport": "tcp"
                 }
             ],
         }
@@ -260,6 +269,11 @@ class CameraWorker(threading.Thread):
         path = cam_config.get("rtsp_path", "/onvif1")
         auth = f"{user}:{pwd}@" if user else ""
         self.rtsp_url = f"rtsp://{auth}{host}:{port}{path}"
+        # URL sin contraseña para logs
+        safe_auth = f"{user}:***@" if user else ""
+        self.rtsp_url_safe = f"rtsp://{safe_auth}{host}:{port}{path}"
+        # Transporte RTSP: tcp (default, más fiable) o udp
+        self.rtsp_transport = cam_config.get("rtsp_transport", "tcp")
 
         # ONVIF PTZ
         self.onvif_url = f"http://{host}:{cam_config.get('onvif_port', 8899)}/onvif/ptz_service"
@@ -269,7 +283,7 @@ class CameraWorker(threading.Thread):
         self._frame_count = 0
 
     def run(self):
-        log.info(f"[{self.cam_name}] Iniciando captura: {self.rtsp_url}")
+        log.info(f"[{self.cam_name}] Iniciando captura: {self.rtsp_url_safe} (transport={self.rtsp_transport})")
         self._register_camera()
 
         while not _shutdown.is_set():
@@ -286,10 +300,40 @@ class CameraWorker(threading.Thread):
         self._set_offline()
         log.info(f"[{self.cam_name}] Detenido")
 
-    def _capture_loop(self):
+    def _open_capture(self, transport: str):
+        """Abre VideoCapture con el transporte y timeout indicados."""
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            f"rtsp_transport;{transport}"
+            f"|timeout;{RTSP_OPEN_TIMEOUT_US}"
+            f"|stimeout;{RTSP_OPEN_TIMEOUT_US}"
+        )
         cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+        # Limpiar env var para no afectar otras instancias
+        os.environ.pop("OPENCV_FFMPEG_CAPTURE_OPTIONS", None)
+        return cap
+
+    def _capture_loop(self):
+        # Intentar con el transporte configurado; si falla, probar el alternativo
+        primary   = self.rtsp_transport
+        fallback  = "udp" if primary == "tcp" else "tcp"
+
+        log.info(f"[{self.cam_name}] Intentando RTSP/{primary.upper()}: {self.rtsp_url_safe}")
+        cap = self._open_capture(primary)
+
         if not cap.isOpened():
-            log.error(f"[{self.cam_name}] No se pudo abrir RTSP")
+            log.warning(f"[{self.cam_name}] Falló {primary.upper()}, probando {fallback.upper()}...")
+            cap = self._open_capture(fallback)
+
+        if not cap.isOpened():
+            log.error(
+                f"[{self.cam_name}] No se pudo abrir RTSP con {primary.upper()} ni {fallback.upper()}.\n"
+                f"  → Verifica en config.json:\n"
+                f"      host      : (IP de la cámara en tu red local)\n"
+                f"      rtsp_port : 554\n"
+                f"      rtsp_path : /onvif1  (o /stream1, /live/ch0, etc.)\n"
+                f"      username  : admin\n"
+                f"  → URL intentada: {self.rtsp_url_safe}"
+            )
             return
 
         log.info(f"[{self.cam_name}] ✅ Conectado a RTSP")
@@ -495,7 +539,7 @@ def cleanup_worker(sb: SupabaseREST):
 
 def main():
     log.info("=" * 50)
-    log.info("  KOA Home Bridge v1.1")
+    log.info("  KOA Home Bridge v1.2")
     log.info("  Puente de cámaras para acceso remoto")
     log.info("=" * 50)
 

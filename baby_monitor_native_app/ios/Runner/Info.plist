@@ -45,13 +45,15 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>NSFaceIDUsageDescription</key>
-	<string>Usamos Face ID para que solo tú puedas acceder al monitoreo de tu bebé.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>KOA necesita acceso a la cámara para el reconocimiento facial y monitoreo del bebé.</string>
+	<string>KOA necesita acceso a la cámara para monitorear a tu bebé y tomar fotos.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>KOA necesita acceso al micrófono para el monitoreo de audio del bebé.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>KOA necesita acceso a la galería para guardar y seleccionar fotos del bebé.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>KOA necesita permiso para guardar fotos del bebé en tu galería.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>KOA necesita acceso a la red local para conectarse a la cámara IP de tu hogar.</string>
 </dict>
 </plist>

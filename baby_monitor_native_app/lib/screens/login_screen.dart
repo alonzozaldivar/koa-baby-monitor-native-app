@@ -4,8 +4,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
+import '../services/caregiver_account_service.dart';
+import '../config/supabase_client.dart';
 import '../main.dart';
-import 'face_capture_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -40,6 +41,10 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (user != null && mounted) {
+        // Auto-link si es cuidador + resetear effectiveUserId para recalcular
+        clearEffectiveUserId();
+        await CaregiverAccountService.autoLinkOnLogin();
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('¡Bienvenido de nuevo!'),
@@ -80,36 +85,6 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  Future<void> _loginWithFace() async {
-    try {
-      // Abrir pantalla de captura facial
-      final result = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(
-          builder: (context) => const FaceCaptureScreen(isLogin: true),
-        ),
-      );
-
-      // Si el login fue exitoso, navegar a selección de perfil
-      if (result == true && mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => const ProfileSelectionPage(),
-          ),
-          (route) => false,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al acceder a la cámara: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
     }
   }
@@ -296,53 +271,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Divider con "O"
-                Row(
-                  children: [
-                    const Expanded(child: Divider()),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        'O',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    const Expanded(child: Divider()),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Botón de reconocimiento facial
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: OutlinedButton.icon(
-                    onPressed: _loginWithFace,
-                    icon: const Icon(Icons.face),
-                    label: const Text(
-                      'Reconocimiento facial',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF4F7A4A),
-                      side: const BorderSide(
-                        color: Color(0xFF4F7A4A),
-                        width: 2,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
                   ),
                 ),
                 const SizedBox(height: 24),

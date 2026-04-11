@@ -43,6 +43,18 @@ class _KoalaTipWidgetState extends State<KoalaTipWidget>
   }
 
   @override
+  void didUpdateWidget(KoalaTipWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Recargar cuando cambia el idioma o la sección
+    if (oldWidget.languageCode != widget.languageCode ||
+        oldWidget.section != widget.section) {
+      _animController.reset();
+      _dismissed = false;
+      _loadTip();
+    }
+  }
+
+  @override
   void dispose() {
     _animController.dispose();
     super.dispose();

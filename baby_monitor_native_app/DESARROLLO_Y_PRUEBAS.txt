@@ -1,0 +1,335 @@
+================================================================
+  BABY MONITOR NATIVE APP — KOA
+  Proyecto: Aplicación Móvil de Monitoreo Infantil
+  Plataforma: Flutter (Android / iOS)
+  Autenticación: Reconocimiento Facial Biométrico
+================================================================
+
+
+================================================================
+C) DESARROLLO DE FUNCIONALIDADES
+================================================================
+
+----------------------------------------------------------------
+C.1 AUTENTICACIÓN BIOMÉTRICA POR RECONOCIMIENTO FACIAL
+----------------------------------------------------------------
+Descripción:
+  Implementación de un sistema de autenticación segura mediante
+  reconocimiento facial usando la cámara frontal del dispositivo.
+  Se integra con el servicio de Supabase para validar identidades
+  de tutores y personal autorizado.
+
+Funcionalidades incluidas:
+  - Captura de foto en tiempo real con la cámara frontal.
+  - Extracción de embeddings faciales (vectores biométricos).
+  - Comparación de embeddings contra la base de datos de Supabase.
+  - Umbral de similitud configurable (porcentaje de coincidencia).
+  - Bloqueo de acceso tras N intentos fallidos consecutivos.
+  - Registro de logs de acceso (exitoso / fallido) con timestamp.
+
+Tecnologías utilizadas:
+  - Flutter: camera, google_ml_kit o face_recognition
+  - Backend: Supabase (PostgreSQL + Storage)
+  - Seguridad: AES-256 para almacenamiento de embeddings
+
+Estado: En desarrollo
+
+----------------------------------------------------------------
+C.2 REGISTRO Y GESTIÓN DE NIÑOS (PERFILES INFANTILES)
+----------------------------------------------------------------
+Descripción:
+  Módulo para registrar los datos básicos de cada niño bajo
+  cuidado, incluyendo foto de perfil, datos personales y
+  contactos de emergencia vinculados.
+
+Funcionalidades incluidas:
+  - Formulario de alta de perfil infantil (nombre, fecha de
+    nacimiento, alergias, condiciones médicas relevantes).
+  - Carga y almacenamiento de foto de perfil en Supabase Storage.
+  - Asignación de tutores/guardias autorizados por niño.
+  - Edición y baja lógica de perfiles.
+  - Listado con búsqueda y filtros por nombre o grupo.
+
+Tecnologías utilizadas:
+  - Flutter: image_picker, flutter_form_builder
+  - Backend: Supabase (tabla: children, tabla: guardians)
+
+Estado: En desarrollo
+
+----------------------------------------------------------------
+C.3 CONTROL DE ACCESO (ENTRADA Y SALIDA)
+----------------------------------------------------------------
+Descripción:
+  Módulo que registra y controla el ingreso y egreso de los
+  niños al centro de cuidado, validado mediante reconocimiento
+  facial del tutor autorizado.
+
+Funcionalidades incluidas:
+  - Escaneo facial del tutor al momento de entrada/salida.
+  - Confirmación visual del niño a retirar.
+  - Registro de fecha, hora y tipo de evento (entrada/salida).
+  - Notificación push al tutor secundario al momento del retiro.
+  - Historial de movimientos por niño y por fecha.
+
+Tecnologías utilizadas:
+  - Flutter: local_notifications, supabase_flutter
+  - Backend: Supabase (tabla: access_log)
+  - Notificaciones: Firebase Cloud Messaging (FCM)
+
+Estado: Pendiente
+
+----------------------------------------------------------------
+C.4 MONITOREO EN TIEMPO REAL (CÁMARA / STREAM)
+----------------------------------------------------------------
+Descripción:
+  Visualización en vivo desde cámaras instaladas en las salas
+  del centro, accesible únicamente para personal autorizado y
+  tutores registrados.
+
+Funcionalidades incluidas:
+  - Visualización de stream de video en la app.
+  - Selección de sala/cámara activa.
+  - Grabación de clips bajo demanda (almacenados en nube).
+  - Control de acceso por rol (admin / tutor / personal).
+
+Tecnologías utilizadas:
+  - Flutter: webrtc o video_player
+  - Backend: Supabase Storage / servidor RTSP externo
+  - Seguridad: JWT + RLS (Row Level Security) en Supabase
+
+Estado: Pendiente
+
+----------------------------------------------------------------
+C.5 PANEL DE ADMINISTRACIÓN
+----------------------------------------------------------------
+Descripción:
+  Interfaz para el administrador del centro con acceso completo
+  a reportes, gestión de usuarios y configuración del sistema.
+
+Funcionalidades incluidas:
+  - Dashboard con métricas del día (ingresos, egresos, alertas).
+  - Gestión de cuentas de personal y tutores.
+  - Configuración de umbrales de reconocimiento facial.
+  - Exportación de reportes en PDF/CSV.
+  - Gestión de grupos y salas.
+
+Tecnologías utilizadas:
+  - Flutter: fl_chart, pdf (dart)
+  - Backend: Supabase (vistas y funciones RPC)
+
+Estado: Pendiente
+
+----------------------------------------------------------------
+C.6 NOTIFICACIONES Y ALERTAS
+----------------------------------------------------------------
+Descripción:
+  Sistema de notificaciones automáticas ante eventos relevantes
+  dentro de la app (acceso no autorizado, retiro de niño, etc.).
+
+Funcionalidades incluidas:
+  - Notificación push en tiempo real vía FCM.
+  - Alertas de intento de acceso fallido (reconocimiento negado).
+  - Notificación de entrada/salida al tutor registrado.
+  - Configuración de preferencias de notificación por usuario.
+
+Tecnologías utilizadas:
+  - Firebase Cloud Messaging (FCM)
+  - flutter_local_notifications
+
+Estado: Pendiente
+
+
+================================================================
+D) PRUEBAS (TESTING)
+================================================================
+
+----------------------------------------------------------------
+D.1 PRUEBAS UNITARIAS (Unit Tests)
+----------------------------------------------------------------
+Descripción:
+  Verificación del comportamiento individual de funciones,
+  métodos y clases de manera aislada, sin dependencias externas.
+
+Casos de prueba planificados:
+
+  [UT-01] Validación de embeddings faciales
+    - Entrada: vector de embedding válido
+    - Salida esperada: valor de similitud >= umbral (0.85)
+    - Herramienta: flutter_test
+
+  [UT-02] Cálculo de edad a partir de fecha de nacimiento
+    - Entrada: fecha "2020-05-10"
+    - Salida esperada: edad en años correcta según fecha actual
+    - Herramienta: flutter_test
+
+  [UT-03] Validación de formulario de perfil infantil
+    - Entrada: campos vacíos / campos con datos inválidos
+    - Salida esperada: mensajes de error apropiados
+    - Herramienta: flutter_test
+
+  [UT-04] Generación de log de acceso
+    - Entrada: userId, childId, tipo "entrada"
+    - Salida esperada: objeto AccessLog con timestamp UTC
+    - Herramienta: flutter_test
+
+Comando para ejecutar:
+  flutter test test/unit/
+
+----------------------------------------------------------------
+D.2 PRUEBAS DE WIDGETS (Widget Tests)
+----------------------------------------------------------------
+Descripción:
+  Verificación del comportamiento visual e interactivo de los
+  componentes de la interfaz de usuario de Flutter.
+
+Casos de prueba planificados:
+
+  [WT-01] Pantalla de autenticación facial
+    - Verifica que la cámara se inicializa correctamente.
+    - Verifica que el botón "Capturar" está presente y habilitado.
+    - Herramienta: flutter_test (WidgetTester)
+
+  [WT-02] Formulario de registro de niño
+    - Verifica que todos los campos del formulario se renderizan.
+    - Verifica que el botón "Guardar" se deshabilita con campos vacíos.
+    - Herramienta: flutter_test (WidgetTester)
+
+  [WT-03] Lista de perfiles infantiles
+    - Verifica que la lista muestra los ítems correctamente.
+    - Verifica que el filtro de búsqueda actualiza los resultados.
+    - Herramienta: flutter_test (WidgetTester)
+
+  [WT-04] Dashboard de administración
+    - Verifica que los contadores del día se muestran.
+    - Verifica navegación entre pestañas.
+    - Herramienta: flutter_test (WidgetTester)
+
+Comando para ejecutar:
+  flutter test test/widget/
+
+----------------------------------------------------------------
+D.3 PRUEBAS DE INTEGRACIÓN (Integration Tests)
+----------------------------------------------------------------
+Descripción:
+  Verificación del flujo completo de la aplicación ejecutándose
+  en un dispositivo real o emulador, integrando todos los módulos.
+
+Casos de prueba planificados:
+
+  [IT-01] Flujo completo de autenticación facial
+    - Paso 1: Abrir app → pantalla de login
+    - Paso 2: Activar cámara → capturar rostro
+    - Paso 3: Verificar que el usuario es reconocido y redirigido
+    - Herramienta: integration_test (Flutter)
+
+  [IT-02] Flujo de registro de nuevo niño
+    - Paso 1: Login como administrador
+    - Paso 2: Navegar a "Agregar niño"
+    - Paso 3: Completar formulario y guardar
+    - Paso 4: Verificar que el perfil aparece en la lista
+    - Herramienta: integration_test (Flutter)
+
+  [IT-03] Flujo de control de acceso (entrada)
+    - Paso 1: Tutor escanea su rostro
+    - Paso 2: Selecciona al niño a retirar
+    - Paso 3: Confirma la acción
+    - Paso 4: Verificar log registrado en Supabase
+    - Herramienta: integration_test (Flutter)
+
+  [IT-04] Flujo de notificación push
+    - Paso 1: Se registra un evento de salida
+    - Paso 2: Verificar que FCM envía notificación
+    - Paso 3: Verificar que el tutor secundario la recibe
+    - Herramienta: integration_test + Firebase Test Lab
+
+Comando para ejecutar:
+  flutter test integration_test/
+
+----------------------------------------------------------------
+D.4 PRUEBAS DE SEGURIDAD (Security Tests)
+----------------------------------------------------------------
+Descripción:
+  Verificación de que los datos sensibles y el acceso al sistema
+  están adecuadamente protegidos.
+
+Casos de prueba planificados:
+
+  [ST-01] Acceso sin autenticación
+    - Verificar que las rutas protegidas redirigen al login.
+
+  [ST-02] Intentos fallidos de reconocimiento facial
+    - Verificar bloqueo tras 3 intentos fallidos consecutivos.
+
+  [ST-03] Almacenamiento seguro de embeddings
+    - Verificar que los embeddings NO se almacenan en texto plano.
+    - Verificar cifrado AES-256 aplicado.
+
+  [ST-04] RLS en Supabase
+    - Verificar que un tutor NO puede ver datos de otro tutor.
+    - Verificar que sólo el admin accede a todos los registros.
+
+  [ST-05] Tokens JWT expirados
+    - Verificar que sesiones vencidas son rechazadas correctamente.
+
+Herramientas: OWASP Mobile Testing Guide (MSTG), Postman (API)
+
+----------------------------------------------------------------
+D.5 PRUEBAS DE RENDIMIENTO (Performance Tests)
+----------------------------------------------------------------
+Descripción:
+  Medición de tiempos de respuesta y uso de recursos bajo
+  condiciones normales y de carga.
+
+Métricas objetivo:
+
+  - Tiempo de reconocimiento facial: < 2 segundos
+  - Tiempo de carga del dashboard: < 1.5 segundos
+  - Tiempo de carga de lista de niños (50 registros): < 1 segundo
+  - Uso de memoria en idle: < 150 MB
+  - FPS en pantalla de cámara: >= 24 FPS
+
+Herramientas:
+  - Flutter DevTools (CPU, Memory, FPS profiler)
+  - Supabase Dashboard (query performance)
+
+----------------------------------------------------------------
+D.6 PRUEBAS EN DISPOSITIVOS FÍSICOS
+----------------------------------------------------------------
+Descripción:
+  Validación de la app en dispositivos reales para garantizar
+  compatibilidad y correcta lectura biométrica.
+
+Dispositivos objetivo:
+
+  Android:
+    - Samsung Galaxy A54 (Android 13)
+    - Xiaomi Redmi Note 12 (Android 12)
+    - Google Pixel 6a (Android 14)
+
+  iOS:
+    - iPhone 13 (iOS 16)
+    - iPhone SE 3ra gen (iOS 15)
+
+Aspectos a validar:
+  - Acceso a cámara frontal y permisos.
+  - Calidad de reconocimiento facial en distintas condiciones de luz.
+  - Notificaciones push en segundo plano.
+  - Compatibilidad de UI en distintos tamaños de pantalla.
+
+----------------------------------------------------------------
+D.7 CRITERIOS DE ACEPTACIÓN GENERAL
+----------------------------------------------------------------
+
+  - Cobertura de pruebas unitarias: >= 80%
+  - 0 errores críticos en pruebas de seguridad.
+  - Todos los flujos de integración ejecutados exitosamente.
+  - Rendimiento dentro de los umbrales definidos en D.5.
+  - App aprobada en al menos 5 dispositivos físicos distintos.
+  - Sin crashes reportados en sesiones de prueba de 30 minutos.
+
+
+================================================================
+  Documento generado: 2026-03-15
+  Proyecto: KOA Baby Monitor Native App
+  Tecnología base: Flutter + Supabase + Firebase
+================================================================

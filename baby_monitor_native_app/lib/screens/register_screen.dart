@@ -4,8 +4,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
+import '../services/caregiver_account_service.dart';
 import '../main.dart';
-import 'face_capture_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -33,55 +33,197 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  Future<void> _offerFaceRegistration() async {
-    final register = await showDialog<bool>(
+  // –– Ya no ofrecemos registro facial en el flujo principal ––
+
+  /// Muestra el diálogo para agregar cuidadores después del registro.
+  Future<void> _offerAddCaregiver() async {
+    final add = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
+        title: const Row(
           children: [
-            Icon(Icons.face, color: const Color(0xFF4F7A4A), size: 32),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Registrar rostro',
-                style: TextStyle(fontSize: 20),
-              ),
-            ),
+            Icon(Icons.people_alt, color: Color(0xFF4F7A4A), size: 28),
+            SizedBox(width: 10),
+            Expanded(child: Text('Agregar cuidador', style: TextStyle(fontSize: 19))),
           ],
         ),
         content: const Text(
-          '¿Deseas registrar tu rostro para acceso rápido con reconocimiento facial?',
-          style: TextStyle(fontSize: 16),
+          '¿Quieres agregar un cuidador ahora?\n\n'
+          'Los cuidadores tendrán su propia cuenta y podrán registrar tomas y '          'medicamentos. Su nombre aparecerá automáticamente en cada registro.',
+          style: TextStyle(fontSize: 15),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Ahora no'),
+            onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFF355334)),
+            child: const Text('Después', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.of(context).pop(true),
-            icon: const Icon(Icons.face),
-            label: const Text('Registrar'),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4F7A4A),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
+            child: const Text('Agregar ahora'),
           ),
         ],
       ),
     );
 
-    if (register == true && mounted) {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => const FaceCaptureScreen(isLogin: false),
-        ),
-      );
+    if (add == true && mounted) {
+      await _showAddCaregiverDialog();
     }
+  }
+
+  /// Diálogo para crear la cuenta del cuidador.
+  Future<void> _showAddCaregiverDialog() async {
+    final nameCtrl  = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final passCtrl  = TextEditingController();
+    String role = 'Mamá';
+    bool loading = false;
+    String? errorMsg;
+
+    final roles = ['Mamá', 'Papá', 'Abuelo/a', 'Niñera', 'Otro'];
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setS) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Datos del cuidador', style: TextStyle(fontSize: 18)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (errorMsg != null)
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(errorMsg!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                  ),
+                TextField(
+                  controller: nameCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    labelText: 'Nombre completo',
+                    prefixIcon: const Icon(Icons.person_outline),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: 'Email del cuidador',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passCtrl,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Contraseña (mín. 6 caracteres)',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: role,
+                  decoration: const InputDecoration(labelText: 'Rol'),
+                  items: roles.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                  onChanged: (v) => setS(() => role = v ?? role),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: loading ? null : () => Navigator.pop(ctx),
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFF355334)),
+              child: const Text('Omitir', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            ElevatedButton(
+              onPressed: loading
+                  ? null
+                  : () async {
+                      final name  = nameCtrl.text.trim();
+                      final email = emailCtrl.text.trim();
+                      final pass  = passCtrl.text;
+                      if (name.isEmpty || email.isEmpty || pass.length < 6) {
+                        setS(() => errorMsg = 'Completa todos los campos (mín. 6 caracteres en contraseña)');
+                        return;
+                      }
+                      setS(() { loading = true; errorMsg = null; });
+                      final error = await CaregiverAccountService.createCaregiverAccount(
+                        name: name, email: email, password: pass, role: role,
+                      );
+                      if (!context.mounted) return;
+                      if (error != null) {
+                        setS(() { loading = false; errorMsg = error; });
+                      } else {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('✅ Cuidador $name agregado. '
+                                'Puede ingresar con $email'),
+                            backgroundColor: const Color(0xFF4F7A4A),
+                            duration: const Duration(seconds: 5),
+                          ),
+                        );
+                        // Preguntar si agregar otro
+                        final addAnother = await showDialog<bool>(
+                          context: context,
+                          builder: (c) => AlertDialog(
+                            title: const Text('¿Agregar otro cuidador?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(c, false),
+                                style: TextButton.styleFrom(foregroundColor: const Color(0xFF355334)),
+                                child: const Text('No, continuar'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(c, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF4F7A4A),
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text('Sí'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (addAnother == true && mounted) {
+                          await _showAddCaregiverDialog();
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4F7A4A),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: loading
+                  ? const SizedBox(width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Crear cuenta'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _register() async {
@@ -97,6 +239,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (user != null && mounted) {
+        // Auto-link si es cuidador (detecta metadata 'is_caregiver')
+        await CaregiverAccountService.autoLinkOnLogin();
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('¡Cuenta creada exitosamente!'),
@@ -104,8 +249,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         );
 
-        // Preguntar si desea registrar su rostro
-        await _offerFaceRegistration();
+        // Preguntar si desea agregar cuidadores
+        await _offerAddCaregiver();
 
         // Navegar a la selección de perfil
         if (mounted) {

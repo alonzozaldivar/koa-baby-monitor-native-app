@@ -1,0 +1,606 @@
+================================================================================
+  KOA BABY MONITOR — SCRIPTS DE LOS SERVICE WORKERS
+================================================================================
+  Proyecto  : KOA Baby Monitor (Flutter + Supabase)
+  Fecha     : Marzo 2026
+  Directorio: lib/services/  |  home_bridge/
+================================================================================
+  Los "service workers" en KOA son clases Dart estáticas y un proceso Python
+  que se ejecutan en segundo plano para manejar autenticación, base de datos,
+  reconocimiento facial, notificaciones, cámara remota y suscripciones.
+================================================================================
+
+
+================================================================================
+SERVICE 1 — AuthService
+================================================================================
+  Archivo : lib/services/auth_service.dart
+  Rol     : Gestiona toda la autenticación de usuarios con Supabase Auth.
+            Incluye registro, login, logout, recuperación de contraseña,
+            biometría facial y eliminación de cuenta.
+
+  ── MÉTODOS PRINCIPALES ──────────────────────────────────────────────────────
+
+  [1] signUp({email, password, fullName}) → Future<User?>
+      Registra un nuevo usuario. Pasa full_name como metadata para que
+      el trigger handle_new_user() lo guarde en public.users.
+
+      final response = await supabase.auth.signUp(
+        email: email,
+        password: password,
+        data: { 'full_name': fullName },
+      );
+
+  [2] signIn({email, password}) → Future<User?>
+      Autentica con email/contraseña y devuelve el User con JWT de sesión.
+
+      final response = await supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+
+  [3] signInWithFace(faceEncoding) → Future<User?>
+      Login biométrico sin contraseña:
+        1. Descarga todos los vectores faciales de la BD
+        2. Calcula similitud de coseno con cada vector almacenado
+        3. Acepta si similitud >= 0.75 (75%)
+        4. Retorna el usuario activo si coincide
+
+      // Umbral de similitud facial
+      const double threshold = 0.75;
+
+      for (final record in response as List) {
+        final storedEncoding = record['face_encoding'] as Map<String, dynamic>;
+        final similarity = _calculateSimilarity(faceEncoding, storedEncoding);
+        if (similarity > maxSimilarity && similarity >= threshold) {
+          maxSimilarity = similarity;
+          matchedUserId = record['user_id'];
+        }
+      }
+
+  [4] _calculateSimilarity(encoding1, encoding2) → double
+      Implementación interna de similitud de coseno:
+        similitud = (v1 · v2) / (|v1| × |v2|)
+      Retorna valor entre 0.0 (distinto) y 1.0 (idéntico).
+
+  [5] registerFaceBiometric({faceEncoding, deviceId})
+      Guarda el vector facial en la tabla face_biometrics.
+
+      await supabase.from('face_biometrics').insert({
+        'user_id': currentUserId,
+        'face_encoding': faceEncoding,
+        'device_id': deviceId,
+      });
+
+  [6] signOut() → void
+      Cierra sesión e invalida el JWT en Supabase.
+
+  [7] resetPassword(email) → void
+      Envía email de recuperación de contraseña.
+
+  [8] updatePassword(newPassword) → void
+      Actualiza la contraseña del usuario autenticado.
+
+  [9] deleteAccount() → void
+      Eliminación completa de cuenta en 5 pasos:
+        Paso 1: DELETE face_biometrics WHERE user_id
+        Paso 2: SELECT baby_profiles para obtener IDs
+        Paso 3: DELETE activity_logs, feeding_logs, sleep_logs,
+                        health_records, milestones, growth_records por baby_id
+        Paso 4: DELETE baby_profiles y subscriptions
+        Paso 5: signOut()
+
+  [10] Stream<AuthState> get authStateChanges
+       Stream en tiempo real del estado de sesión (login/logout).
+
+  ── GETTERS DE ESTADO ────────────────────────────────────────────────────────
+      isAuthenticated → bool    (currentUser != null)
+      currentUserEmail → String?
+      currentUserId → String?
+
+
+================================================================================
+SERVICE 2 — SupabaseService
+================================================================================
+  Archivo : lib/services/supabase_service.dart
+  Rol     : Servicio centralizado para TODOS los accesos CRUD a la base de
+            datos de Supabase. Cada método aplica filtro por user_id para
+            cumplir con Row Level Security.
+
+  ── BABY PROFILES ────────────────────────────────────────────────────────────
+
+  getBabyProfiles() → Future<List<BabyProfile>>
+      SELECT * FROM baby_profiles WHERE user_id = ? ORDER BY created_at DESC
+
+  createBabyProfile(profile) → Future<BabyProfile>
+      INSERT INTO baby_profiles + user_id → retorna registro creado
+
+  updateBabyProfile(id, profile) → Future<BabyProfile>
+      UPDATE baby_profiles SET ... WHERE id = ? AND user_id = ?
+
+  deleteBabyProfile(id)
+      DELETE FROM baby_profiles WHERE id = ? AND user_id = ?
+
+  ── FEEDING ENTRIES ──────────────────────────────────────────────────────────
+
+  getFeedingEntries(babyId) → Future<List<FeedingEntry>>
+      SELECT * WHERE baby_id = ? AND user_id = ? ORDER BY timestamp DESC
+
+  createFeedingEntry(entry) → Future<FeedingEntry>
+      INSERT INTO feeding_entries con tipo: 'breast' | 'bottle' | 'solid'
+
+  deleteFeedingEntry(id)
+      DELETE WHERE id = ? AND user_id = ?
+
+  ── MEDICAL APPOINTMENTS ─────────────────────────────────────────────────────
+
+  getMedicalAppointments(babyId) → Future<List<MedicalAppointment>>
+      SELECT * WHERE baby_id = ? ORDER BY date ASC
+
+  createMedicalAppointment(appointment) → Future<MedicalAppointment>
+  updateMedicalAppointment(id, appointment) → Future<MedicalAppointment>
+  deleteMedicalAppointment(id)
+
+  ── MEDICINES ────────────────────────────────────────────────────────────────
+
+  getMedicines(babyId) → Future<List<Medicine>>
+  createMedicine(medicine) → Future<Medicine>
+  updateMedicine(id, medicine) → Future<Medicine>
+  deleteMedicine(id)
+
+  ── VACCINE RECORDS ──────────────────────────────────────────────────────────
+
+  getVaccineRecords(babyId) → Future<List<VaccineRecord>>
+
+  upsertVaccineRecord(record) → Future<VaccineRecord>
+      INSERT OR UPDATE ON CONFLICT — permite marcar vacunas como aplicadas
+
+  ── SLEEP SESSIONS ───────────────────────────────────────────────────────────
+
+  getSleepSessions(babyId) → Future<List<SleepSessionModel>>
+      SELECT * ORDER BY start_time DESC
+
+  createSleepSession(session) → Future<SleepSessionModel>
+  updateSleepSession(id, session) → Future<SleepSessionModel>
+  deleteSleepSession(id)
+
+  ── DIARY MILESTONES ─────────────────────────────────────────────────────────
+
+  getDiaryMilestones(babyId) → Future<List<DiaryMilestone>>
+      SELECT * ORDER BY date DESC
+
+  createDiaryMilestone(milestone) → Future<DiaryMilestone>
+  updateDiaryMilestone(id, milestone) → Future<DiaryMilestone>
+  deleteDiaryMilestone(id)
+
+  ── CAMERA CONFIGS ───────────────────────────────────────────────────────────
+
+  getCameraConfigs() → Future<List<CameraConfigModel>>
+  createCameraConfig(config) → Future<CameraConfigModel>
+  updateCameraConfig(id, config) → Future<CameraConfigModel>
+  deleteCameraConfig(id)
+
+  ── STORAGE — SUBIDA DE IMÁGENES ─────────────────────────────────────────────
+
+  uploadBabyPhoto(babyId, imageFile) → Future<String> (URL pública)
+      Bucket: 'baby-photos'
+      Ruta  : {userId}/{babyId}_{timestamp}.jpg
+
+  uploadMilestonePhoto(babyId, imageFile) → Future<String> (URL pública)
+      Bucket: 'milestone-photos'
+      Ruta  : {userId}/{babyId}_{timestamp}.jpg
+
+  deleteImage(bucket, path)
+      supabase.storage.from(bucket).remove([path])
+
+
+================================================================================
+SERVICE 3 — FaceEmbeddingService
+================================================================================
+  Archivo : lib/services/face_embedding_service.dart
+  Rol     : Genera vectores de embedding facial usando el modelo MobileFaceNet
+            ejecutado localmente con TFLite. 100% on-device, sin conexión.
+  Patrón  : Singleton
+
+  Modelo  : assets/models/mobilefacenet.tflite (~5 MB)
+  Input   : Tensor [1, 112, 112, 3] float32 normalizado a rango [-1, 1]
+  Output  : Tensor [1, N] float32 L2-normalizado (N detectado dinámicamente)
+
+  ── MÉTODOS ──────────────────────────────────────────────────────────────────
+
+  [1] initialize() → void
+      Carga el modelo .tflite desde assets via rootBundle.
+      Detecta dinámicamente el tamaño del embedding desde el tensor de salida.
+
+      final byteData = await rootBundle.load('assets/models/mobilefacenet.tflite');
+      _interpreter = Interpreter.fromBuffer(bytes);
+      _embeddingSize = _interpreter!.getOutputTensor(0).shape[1];
+
+  [2] generateEmbedding(imageBytes, faceBounds) → Future<List<double>?>
+      Pipeline completo de 7 pasos:
+        1. Decodificar imagen (Uint8List → img.Image)
+        2. Recortar región del rostro con padding de 20px
+        3. Redimensionar a 112×112 píxeles
+        4. Normalizar píxeles: (pixel / 127.5) - 1.0  →  rango [-1, 1]
+        5. Construir tensor de entrada [1, 112, 112, 3]
+        6. Ejecutar inferencia: _interpreter.run(input, output)
+        7. Normalizar L2 el vector resultante y retornar
+
+      // Normalización de píxeles
+      (pixel.r.toDouble() / 127.5) - 1.0,
+      (pixel.g.toDouble() / 127.5) - 1.0,
+      (pixel.b.toDouble() / 127.5) - 1.0,
+
+  [3] _l2Normalize(vector) → List<double>
+      Normaliza el vector embedding dividiendo cada componente por su norma.
+      norm = sqrt(sum(v²))
+      output[i] = v[i] / norm
+
+  [4] static cosineSimilarity(a, b) → double
+      Calcula similitud entre dos embeddings L2-normalizados.
+      Retorna valor entre 0.0 y 1.0.
+      Umbral recomendado para MobileFaceNet: >= 0.70 (misma persona).
+
+      double dot = 0, normA = 0, normB = 0;
+      for (int i = 0; i < a.length; i++) {
+        dot  += a[i] * b[i];
+        normA += a[i] * a[i];
+        normB += b[i] * b[i];
+      }
+      return (dot / (sqrt(normA) * sqrt(normB))).clamp(0.0, 1.0);
+
+  [5] dispose()
+      Cierra el intérprete TFLite y libera memoria nativa.
+
+
+================================================================================
+SERVICE 4 — CameraRelayService
+================================================================================
+  Archivo : lib/services/camera_relay_service.dart
+  Rol     : Recibe el video de la cámara de forma remota (fuera de la red
+            local) sin port-forwarding. Hace polling a Supabase Storage para
+            obtener frames JPEG en tiempo real y envía comandos PTZ remotos.
+  Patrón  : Singleton
+
+  ── STREAMS PÚBLICOS ─────────────────────────────────────────────────────────
+
+  Stream<Uint8List>        frameStream   → frames JPEG listos para mostrar
+  Stream<RemoteCameraState> stateStream  → estado online/offline de la cámara
+
+  ── MÉTODOS ──────────────────────────────────────────────────────────────────
+
+  [1] startPolling(cameraId, {fps = 2})
+      Inicia un Timer.periodic que llama _fetchLatestFrame() cada (1000/fps) ms.
+      Por defecto: 2fps = cada 500ms.
+
+  [2] stopPolling()
+      Cancela el timer y limpia el estado.
+
+  [3] getRemoteCameras() → Future<List<RemoteCameraState>>
+      SELECT * FROM camera_streams WHERE user_id = ? ORDER BY camera_name
+
+  [4] findRemoteCamera(cameraId, {cameraName}) → Future<RemoteCameraState?>
+      Búsqueda en 3 pasos de fallback:
+        1. Busca por camera_id exacto
+        2. Si no encuentra, busca por camera_name
+        3. Si aún no encuentra, retorna la primera cámara online
+
+  [5] _fetchLatestFrame()  [privado, llamado por el timer]
+      - SELECT camera_streams WHERE user_id + camera_id
+      - Emite RemoteCameraState al stateStream
+      - Si hay last_frame_url y la cámara está activa (heartbeat < 30s):
+          HTTP GET frame_url → emite bytes al frameStream
+
+      // La cámara se considera activa si heartbeat fue hace menos de 30s
+      bool get isActive =>
+          isOnline && timeSinceHeartbeat!.inSeconds < 30;
+
+  [6] sendPTZCommand(cameraId, command)
+      Inserta un comando en la cola de Supabase:
+
+      await supabase.from('ptz_commands').insert({
+        'user_id': userId,
+        'camera_id': cameraId,
+        'command': command,  // left|right|up|down|zoom_in|zoom_out|stop
+      });
+
+      El bridge Python local lo lee y lo ejecuta vía ONVIF/SOAP.
+
+  [7] stopPTZ(cameraId)
+      Atajo que llama sendPTZCommand(cameraId, 'stop').
+
+  [8] dispose()
+      Cancela el timer y cierra todos los StreamControllers.
+
+  ── CLASE RemoteCameraState ──────────────────────────────────────────────────
+      cameraId       : String
+      cameraName     : String
+      isOnline       : bool
+      lastFrameUrl   : String?   (URL firmada válida 5 min)
+      lastHeartbeat  : DateTime?
+      fps            : int
+      isActive       : bool      (heartbeat < 30s)
+
+
+================================================================================
+SERVICE 5 — NotificationService
+================================================================================
+  Archivo : lib/services/notification_service.dart
+  Rol     : Programa y gestiona notificaciones locales para citas médicas,
+            medicamentos y alimentación. Funciona sin internet.
+  Plugin  : flutter_local_notifications + timezone
+
+  ── CANALES DE NOTIFICACIÓN ──────────────────────────────────────────────────
+
+      appointments_channel      Citas médicas y vacunas
+      medicines_channel         Recordatorios de medicamentos
+      feeding_channel           Próxima toma calculada automáticamente
+      feeding_reminder_channel  Recordatorio manual elegido por el usuario
+      test_channel              Prueba inmediata del sistema
+
+  ── MÉTODOS ──────────────────────────────────────────────────────────────────
+
+  [1] initialize()
+      Configura el plugin para Android (@mipmap/ic_launcher) e iOS
+      (requestAlert + requestBadge + requestSound).
+      Establece zona horaria: America/Mexico_City.
+
+  [2] requestPermissions() → Future<bool>
+      Solicita permiso de notificaciones:
+        Android 13+: androidImplementation.requestNotificationsPermission()
+        iOS: iosImplementation.requestPermissions(alert, badge, sound)
+
+  [3] scheduleAppointmentNotification({type, date, time, notes}) → Future<int>
+      Programa notificación 1 HORA antes de la cita.
+      Canal: appointments_channel  |  Prioridad: high
+      Usa zonedSchedule() con TZDateTime para precisión de zona horaria.
+      Retorna el ID numérico de la notificación (para cancelarla después).
+
+  [4] scheduleMedicineNotifications({medicineName, dosage, times}) → Future<List<int>>
+      Programa una notificación diaria RECURRENTE por cada horario de dosis.
+      Usa matchDateTimeComponents: DateTimeComponents.time para repetición diaria.
+      Retorna lista de IDs (uno por cada horario del día).
+
+      // Repetición diaria a la misma hora
+      matchDateTimeComponents: DateTimeComponents.time,
+
+  [5] scheduleNextFeedingNotification({nextFeedingTime, babyName}) → Future<int>
+      Notificación ÚNICA para la próxima toma calculada.
+      ID fijo: 999999 (se sobreescribe si ya existe una programada anterior).
+
+  [6] scheduleCustomFeedingReminder({scheduledTime, babyName}) → Future<bool>
+      Recordatorio manual a la hora que el usuario elige.
+      ID fijo: 888888  |  Prioridad: max
+      Cancela el recordatorio anterior antes de programar el nuevo.
+
+  [7] cancelNotification(int id)
+      Cancela una notificación específica por ID.
+
+  [8] cancelNotifications(List<int> ids)
+      Cancela múltiples notificaciones a la vez.
+
+  [9] cancelAllNotifications()
+      Cancela TODAS las notificaciones programadas.
+
+  [10] showTestNotification()
+       Muestra una notificación inmediata para verificar que el sistema
+       funciona correctamente.
+
+
+================================================================================
+SERVICE 6 — StorageService
+================================================================================
+  Archivo : lib/services/storage_service.dart
+  Rol     : Persistencia LOCAL de datos usando SharedPreferences.
+            Actúa como caché offline cuando no hay conexión a Supabase.
+  Plugin  : shared_preferences
+
+  ── CLAVES Y ENTIDADES ───────────────────────────────────────────────────────
+
+      'feeding_entries'      → List<FeedingEntry>
+      'medical_appointments' → List<MedicalAppointment>
+      'medicine_reminders'   → List<MedicineReminder>
+      'health_measurements'  → List<HealthMeasurement>
+      'vaccine_records'      → List<VaccineRecord>
+      'sleep_sessions'       → List<SleepSession>
+
+  ── PATRÓN DE MÉTODOS (igual para cada entidad) ──────────────────────────────
+
+  save___(List<T> items)
+      Serializa la lista a JSON y la guarda en SharedPreferences.
+
+      final prefs = await SharedPreferences.getInstance();
+      final jsonList = items.map((e) => e.toJson()).toList();
+      await prefs.setString(key, jsonEncode(jsonList));
+
+  load___() → Future<List<T>>
+      Lee el JSON de SharedPreferences y lo deserializa.
+      Retorna lista vacía si no existe o si hay error de parsing.
+
+      final jsonList = jsonDecode(jsonString) as List;
+      return jsonList.map((json) => T.fromJson(json)).toList();
+
+  clear___()
+      Elimina la entrada de SharedPreferences.
+      await prefs.remove(key);
+
+  ── MODELOS LOCALES (definidos en el mismo archivo) ──────────────────────────
+
+  FeedingEntry         time, amount, type, notes
+  MedicalAppointment   type, date, time(TimeOfDay), notes, completed, notificationId
+  MedicineReminder     name, dosage, frequency, times[], notes, notificationIds[]
+  HealthMeasurement    date, weight(kg), height(cm), ageInMonths
+  VaccineRecord        vaccineId, name, ageInMonths, appliedDate, notes
+  SleepSession         startTime, endTime, notes
+                         → durationInMinutes (calculado)
+                         → durationFormatted "Xh Ym"
+                         → isOngoing (endTime == null)
+
+
+================================================================================
+SERVICE 7 — SubscriptionService
+================================================================================
+  Archivo : lib/services/subscription_service.dart
+  Rol     : Controla el acceso a funciones Premium. Actualmente simulado
+            con SharedPreferences hasta integrar facturación real.
+  Plugin  : shared_preferences
+
+  ── MODO DEMO ────────────────────────────────────────────────────────────────
+      Compilar con --dart-define=DEMO_MODE=true desbloquea todas las
+      funciones Premium sin requerir suscripción.
+
+      const bool kDemoMode = bool.fromEnvironment('DEMO_MODE', defaultValue: false);
+
+  ── MÉTODOS ──────────────────────────────────────────────────────────────────
+
+  isPremium() → Future<bool>
+      Si kDemoMode = true → retorna true siempre.
+      Si no → lee la clave 'is_premium' de SharedPreferences.
+
+  activatePremium()
+      Guarda is_premium = true en SharedPreferences.
+      (No-op si está en modo demo)
+
+  deactivatePremium()
+      Guarda is_premium = false. Útil para pruebas.
+
+  upgradeRequiredMessage(featureName) → String
+      Retorna mensaje de texto para mostrar cuando el usuario intenta
+      acceder a una función Premium sin suscripción.
+
+
+================================================================================
+SERVICE 8 — Home Bridge (Python)
+================================================================================
+  Archivo : home_bridge/bridge.py
+  Rol     : Proceso Python independiente que corre en la PC de casa.
+            Lee streams RTSP de cámaras IP locales, sube frames a Supabase
+            y ejecuta comandos PTZ via ONVIF/SOAP.
+  Versión : KOA Home Bridge v1.1
+
+  ── CLASE SupabaseREST (cliente REST sin SDK) ────────────────────────────────
+
+  sign_in(email, password)
+      POST /auth/v1/token?grant_type=password
+      Guarda access_token y user_id para las siguientes peticiones.
+
+  upsert(table, data, on_conflict)
+      POST /rest/v1/{table}
+      Header: Prefer: resolution=merge-duplicates
+      Param : on_conflict=columnas  (ej: "user_id,camera_id")
+
+  update(table, data, filters)
+      PATCH /rest/v1/{table}?{col}=eq.{val}
+
+  select(table, filters, order, limit)
+      GET /rest/v1/{table}?{col}=eq.{val}&order=...&limit=...
+
+  storage_upload(bucket, path, bytes)
+      POST /storage/v1/object/{bucket}/{path}
+      Header: x-upsert: true  (sobreescribe latest.jpg)
+
+  storage_signed_url(bucket, path, expires_in=300)
+      POST /storage/v1/object/sign/{bucket}/{path}
+      Body: { "expiresIn": 300 }  →  URL válida 5 minutos
+
+  ensure_bucket(bucket)
+      GET  /storage/v1/bucket/{bucket}
+      POST /storage/v1/bucket  (crea si no existe)
+
+  rpc(function_name)
+      POST /rest/v1/rpc/{function_name}
+
+  ── CLASE CameraWorker (Thread por cámara) ───────────────────────────────────
+
+  run()
+      Bucle principal: intenta captura → si falla espera 5s → reintenta.
+
+  _capture_loop()
+      cv2.VideoCapture(rtsp_url, CAP_FFMPEG)  →  lee frames continuamente.
+      Por cada frame: _upload_frame() + _send_heartbeat() + _process_ptz_commands()
+
+  _upload_frame(frame)
+      1. Redimensiona a 640px de ancho si es mayor
+      2. Codifica a JPEG calidad 70 (máx 150 KB; si supera → calidad 40)
+      3. storage_upload('camera-streams', '{userId}/{camId}/latest.jpg', bytes)
+      4. storage_signed_url() → URL firmada
+      5. upsert('camera_streams', {is_online:true, last_frame_url, heartbeat, fps})
+
+  _send_heartbeat()
+      Cada 10 segundos: upsert camera_streams con last_heartbeat = NOW().
+
+  _process_ptz_commands()
+      select('ptz_commands', {user_id, camera_id, executed:false}, limit=5)
+      Por cada comando pendiente:
+        → _execute_ptz(command)
+        → update('ptz_commands', {executed:true}, {id})
+
+  _execute_ptz(command)
+      Genera SOAP según el comando:
+        left/right/up/down/zoom_in/zoom_out → ContinuousMove (PanTilt + Zoom)
+        stop                                → Stop
+      POST al endpoint ONVIF de la cámara IP.
+      Si no es stop: envía Stop automáticamente 0.5s después.
+
+      // Velocidades ONVIF
+      left     → PanTilt x=-0.5, y=0.0
+      right    → PanTilt x=+0.5, y=0.0
+      up       → PanTilt x=0.0,  y=+0.5
+      down     → PanTilt x=0.0,  y=-0.5
+      zoom_in  → Zoom x=+0.5
+      zoom_out → Zoom x=-0.5
+
+  ── FUNCIÓN cleanup_worker (Thread) ──────────────────────────────────────────
+      Cada 60 segundos llama rpc('clean_old_ptz_commands').
+      Elimina de la BD los comandos PTZ con más de 5 minutos de antigüedad.
+
+  ── CONFIGURACIÓN (config.json) ──────────────────────────────────────────────
+      {
+        "supabase_url"     : "https://xxxxx.supabase.co",
+        "supabase_anon_key": "eyJ...",
+        "user_email"       : "usuario@email.com",
+        "user_password"    : "contraseña",
+        "cameras": [{
+          "id"         : "cam_1",
+          "name"       : "Habitación Bebé",
+          "host"       : "192.168.1.100",
+          "rtsp_port"  : 554,
+          "rtsp_path"  : "/onvif1",
+          "username"   : "admin",
+          "password"   : "",
+          "onvif_port" : 8899,
+          "fps"        : 2
+        }]
+      }
+
+  ── PARÁMETROS GLOBALES ───────────────────────────────────────────────────────
+      STORAGE_BUCKET     = "camera-streams"
+      FRAME_QUALITY      = 70        (calidad JPEG normal)
+      MAX_FRAME_SIZE     = 150,000   (bytes máximos por frame)
+      HEARTBEAT_INTERVAL = 10        (segundos entre heartbeats)
+      RECONNECT_DELAY    = 5         (segundos antes de reintentar RTSP)
+      CLEANUP_INTERVAL   = 60        (segundos entre limpiezas de PTZ)
+
+
+================================================================================
+  RESUMEN — SERVICIOS Y SUS DEPENDENCIAS
+================================================================================
+
+  AuthService           → supabase_flutter (Auth API)
+  SupabaseService       → supabase_flutter (PostgREST + Storage)
+  FaceEmbeddingService  → tflite_flutter, image, flutter/services (rootBundle)
+  CameraRelayService    → supabase_flutter (PostgREST), http (GET frames)
+  NotificationService   → flutter_local_notifications, timezone
+  StorageService        → shared_preferences
+  SubscriptionService   → shared_preferences
+  HomeBridge (Python)   → requests, opencv-python
+
+  Archivos de configuración de conexión:
+    lib/config/supabase_config.dart   → URL y anon key
+    lib/config/supabase_client.dart   → instancia global 'supabase'
+    home_bridge/config.json           → credenciales del bridge (no en repo)
+
+
+================================================================================
+  Fin del documento — SCRIPTS_SERVICE_WORKERS.txt
+================================================================================

@@ -1,0 +1,518 @@
+================================================================================
+  KOA BABY MONITOR — APIS UTILIZADAS Y COMUNICACIÓN CON BASE DE DATOS
+================================================================================
+  Proyecto : KOA Baby Monitor (Flutter + Supabase + Firebase)
+  Fecha    : Marzo 2026
+  Archivo  : APIS_Y_BASE_DE_DATOS.txt
+================================================================================
+
+
+================================================================================
+SECCIÓN A — APIs EXTERNAS UTILIZADAS
+================================================================================
+
+--------------------------------------------------------------------------------
+A.1  SUPABASE AUTH API  (REST v1)
+--------------------------------------------------------------------------------
+  URL base : https://ujbqnsdznvjjrqbrguyx.supabase.co/auth/v1/
+  SDK      : supabase_flutter (Flutter) | requests HTTP directo (Python Bridge)
+
+  Endpoints principales
+  ┌─────────────────────────────────────────────────┬────────────────────────────┐
+  │ Acción                                          │ Método / Ruta              │
+  ├─────────────────────────────────────────────────┼────────────────────────────┤
+  │ Registro de usuario (email + contraseña)        │ POST /auth/v1/signup       │
+  │ Inicio de sesión (email + contraseña)           │ POST /auth/v1/token        │
+  │                                                 │   ?grant_type=password     │
+  │ Cierre de sesión                                │ POST /auth/v1/logout       │
+  │ Recuperar contraseña (envío de email)           │ POST /auth/v1/recover      │
+  │ Actualizar atributos de usuario                 │ PUT  /auth/v1/user         │
+  │ Escucha de cambios de sesión (stream)           │ supabase.auth.onAuthStateChange │
+  └─────────────────────────────────────────────────┴────────────────────────────┘
+
+  Archivo de implementación (Flutter):
+    lib/services/auth_service.dart
+      - signUp()          → supabase.auth.signUp(email, password, data:{full_name})
+      - signIn()          → supabase.auth.signInWithPassword(email, password)
+      - signOut()         → supabase.auth.signOut()
+      - resetPassword()   → supabase.auth.resetPasswordForEmail(email)
+      - updatePassword()  → supabase.auth.updateUser(UserAttributes)
+      - authStateChanges  → supabase.auth.onAuthStateChange  (Stream<AuthState>)
+
+  Implementación Python (Home Bridge):
+    home_bridge/bridge.py  — clase SupabaseREST.sign_in()
+      POST /auth/v1/token?grant_type=password
+      Body: { "email": "...", "password": "..." }
+      Respuesta: { "access_token": "...", "user": { "id": "...", ... } }
+
+  Autenticación Facial (custom, sin endpoint dedicado):
+    lib/services/auth_service.dart — signInWithFace()
+      1. SELECT face_biometrics WHERE user_id = currentUserId
+      2. Calcula similitud coseno contra cada vector almacenado
+      3. Umbral de aceptación: 75% (threshold = 0.75)
+      4. Obtiene email del usuario desde tabla users
+      5. Reutiliza la sesión JWT activa
+
+
+--------------------------------------------------------------------------------
+A.2  SUPABASE POSTGREST API  (REST v1)
+--------------------------------------------------------------------------------
+  URL base : https://ujbqnsdznvjjrqbrguyx.supabase.co/rest/v1/
+  Headers requeridos:
+    apikey        : <supabase_anon_key>
+    Authorization : Bearer <access_token>
+    Content-Type  : application/json
+
+  Operaciones CRUD implementadas por tabla
+  (Archivo principal: lib/services/supabase_service.dart)
+
+  ── face_biometrics ──────────────────────────────────────────────────────────
+    SELECT  user_id, face_encoding          → auth_service.dart (login facial)
+    INSERT  user_id, face_encoding, device_id → registerFaceBiometric()
+    SELECT  id, face_encoding, device_id, registered_at → getUserFaceBiometrics()
+    DELETE  WHERE id = ? AND user_id = ?    → deleteFaceBiometric()
+    DELETE  WHERE user_id = ?               → deleteAccount() paso 1
+
+  ── baby_profiles ────────────────────────────────────────────────────────────
+    SELECT  * WHERE user_id = ? ORDER BY created_at DESC   → getBabyProfiles()
+    INSERT  {name, birthdate, gender, photo_url, user_id}  → createBabyProfile()
+    UPDATE  SET ... WHERE id = ? AND user_id = ?           → updateBabyProfile()
+    DELETE  WHERE id = ? AND user_id = ?                   → deleteBabyProfile()
+
+  ── feeding_entries ──────────────────────────────────────────────────────────
+    SELECT  * WHERE baby_id = ? AND user_id = ? ORDER BY timestamp DESC
+    INSERT  {baby_id, user_id, type, amount, notes, timestamp}
+    DELETE  WHERE id = ? AND user_id = ?
+
+  ── medical_appointments ─────────────────────────────────────────────────────
+    SELECT  * WHERE baby_id = ? AND user_id = ? ORDER BY date ASC
+    INSERT  {baby_id, user_id, title, doctor_name, date, notes, completed}
+    UPDATE  SET ... WHERE id = ? AND user_id = ?
+    DELETE  WHERE id = ? AND user_id = ?
+
+  ── medicines ────────────────────────────────────────────────────────────────
+    SELECT  * WHERE baby_id = ? AND user_id = ? ORDER BY created_at DESC
+    INSERT  {baby_id, user_id, name, dosage, frequency, times, start_date, end_date}
+    UPDATE  SET ... WHERE id = ? AND user_id = ?
+    DELETE  WHERE id = ? AND user_id = ?
+
+  ── vaccine_records ──────────────────────────────────────────────────────────
+    SELECT  * WHERE baby_id = ? AND user_id = ? ORDER BY created_at DESC
+    UPSERT  {baby_id, user_id, vaccine_id, vaccine_name, applied, date_applied}
+
+  ── sleep_sessions ───────────────────────────────────────────────────────────
+    SELECT  * WHERE baby_id = ? AND user_id = ? ORDER BY start_time DESC
+    INSERT  {baby_id, user_id, start_time, end_time, duration_minutes}
+    UPDATE  SET ... WHERE id = ? AND user_id = ?
+    DELETE  WHERE id = ? AND user_id = ?
+
+  ── diary_milestones ─────────────────────────────────────────────────────────
+    SELECT  * WHERE baby_id = ? AND user_id = ? ORDER BY date DESC
+    INSERT  {baby_id, user_id, title, description, date, photo_url}
+    UPDATE  SET ... WHERE id = ? AND user_id = ?
+    DELETE  WHERE id = ? AND user_id = ?
+
+  ── camera_configs ───────────────────────────────────────────────────────────
+    SELECT  * WHERE user_id = ? ORDER BY created_at DESC
+    INSERT  {user_id, name, host, protocol, rtsp_port, rtsp_path, ...}
+    UPDATE  SET ... WHERE id = ? AND user_id = ?
+    DELETE  WHERE id = ? AND user_id = ?
+
+  ── camera_streams ───────────────────────────────────────────────────────────
+    (Gestionada principalmente desde Home Bridge + CameraRelayService)
+    SELECT  * WHERE user_id = ? ORDER BY camera_name          → getRemoteCameras()
+    SELECT  * WHERE user_id = ? AND camera_id = ? LIMIT 1     → findRemoteCamera()
+    SELECT  * WHERE user_id = ? AND is_online = true LIMIT 1  → fallback automático
+    UPSERT  {user_id, camera_id, camera_name, is_online, last_frame_url,
+             last_heartbeat, fps}  ON CONFLICT(user_id, camera_id) MERGE
+    UPDATE  SET is_online=false WHERE user_id=? AND camera_id=?
+
+  ── ptz_commands ─────────────────────────────────────────────────────────────
+    INSERT  {user_id, camera_id, command}                     → sendPTZCommand()
+    SELECT  * WHERE user_id=? AND camera_id=? AND executed=false
+             ORDER BY created_at ASC LIMIT 5                  → bridge.py polling
+    UPDATE  SET executed=true WHERE id=?                      → tras ejecutar PTZ
+
+  ── users ────────────────────────────────────────────────────────────────────
+    SELECT  email WHERE id = ?    → auth_service.dart (login facial paso 3)
+
+  ── Tablas referenciadas en deleteAccount() (limpieza en cascada): ───────────
+    activity_logs, feeding_logs, sleep_logs, health_records,
+    milestones, growth_records, subscriptions
+
+
+--------------------------------------------------------------------------------
+A.3  SUPABASE STORAGE API  (v1)
+--------------------------------------------------------------------------------
+  URL base : https://ujbqnsdznvjjrqbrguyx.supabase.co/storage/v1/
+
+  Buckets utilizados:
+  ┌─────────────────────┬───────────────────────────────────────────────────────┐
+  │ Bucket              │ Contenido                                             │
+  ├─────────────────────┼───────────────────────────────────────────────────────┤
+  │ baby-photos         │ Fotos de perfil de bebés                              │
+  │ milestone-photos    │ Fotos adjuntas a hitos del diario                     │
+  │ camera-streams      │ Frames JPEG en vivo de las cámaras                    │
+  └─────────────────────┴───────────────────────────────────────────────────────┘
+
+  Operaciones Flutter (lib/services/supabase_service.dart):
+    uploadBabyPhoto()
+      supabase.storage.from('baby-photos').upload(fileName, imageFile)
+      supabase.storage.from('baby-photos').getPublicUrl(fileName)
+      Ruta: {userId}/{babyId}_{timestamp}.jpg
+
+    uploadMilestonePhoto()
+      supabase.storage.from('milestone-photos').upload(fileName, imageFile)
+      supabase.storage.from('milestone-photos').getPublicUrl(fileName)
+      Ruta: {userId}/{babyId}_{timestamp}.jpg
+
+    deleteImage(bucket, path)
+      supabase.storage.from(bucket).remove([path])
+
+  Operaciones Python (home_bridge/bridge.py — clase SupabaseREST):
+    storage_upload(bucket, path, data_bytes)
+      POST /storage/v1/object/{bucket}/{path}
+      Header: x-upsert: true
+      Body: bytes JPEG
+      Ruta: {userId}/{cameraId}/latest.jpg
+
+    storage_signed_url(bucket, path, expiresIn=300)
+      POST /storage/v1/object/sign/{bucket}/{path}
+      Body: { "expiresIn": 300 }
+      Devuelve URL temporal firmada (válida 5 min)
+
+    ensure_bucket(bucket)
+      GET  /storage/v1/bucket/{bucket}   (verificar existencia)
+      POST /storage/v1/bucket            (crear si no existe)
+
+
+--------------------------------------------------------------------------------
+A.4  SUPABASE RPC (Funciones PostgreSQL)
+--------------------------------------------------------------------------------
+  Función: clean_old_ptz_commands()
+    Elimina comandos PTZ con más de 5 minutos de antigüedad.
+    Llamada desde: home_bridge/bridge.py → SupabaseREST.rpc()
+      POST /rest/v1/rpc/clean_old_ptz_commands
+    Frecuencia: cada 60 segundos (CLEANUP_INTERVAL)
+
+  Función: handle_new_user()   (trigger automático, no se llama directamente)
+    Se ejecuta AFTER INSERT en auth.users.
+    Crea registro en public.users con id, email, full_name desde metadata.
+
+
+--------------------------------------------------------------------------------
+A.5  NOTIFICACIONES LOCALES (flutter_local_notifications)
+--------------------------------------------------------------------------------
+  Plugin  : flutter_local_notifications
+  Archivo : lib/services/notification_service.dart
+  Tipo    : Notificaciones locales programadas (NO requiere servidor externo)
+
+  Canales configurados:
+  ┌──────────────────────────────┬────────────────────────────────────────────┐
+  │ ID canal                     │ Propósito                                  │
+  ├──────────────────────────────┼────────────────────────────────────────────┤
+  │ appointments_channel         │ Citas médicas y vacunas (1h de anticipación)│
+  │ medicines_channel            │ Recordatorios diarios de medicamentos       │
+  │ feeding_channel              │ Recordatorio de próxima toma (automático)   │
+  │ feeding_reminder_channel     │ Recordatorio manual de toma (custom)        │
+  │ test_channel                 │ Prueba del sistema de notificaciones        │
+  └──────────────────────────────┴────────────────────────────────────────────┘
+
+  Métodos principales:
+    initialize()                    → Configura Android + iOS, zona horaria
+    requestPermissions()            → Solicita permisos (Android 13+ / iOS)
+    scheduleAppointmentNotification() → Programa 1h antes de la cita
+    scheduleMedicineNotifications() → Recurrente diario por cada horario
+    scheduleNextFeedingNotification() → Única, para próxima toma calculada
+    scheduleCustomFeedingReminder() → Manual a hora elegida por usuario
+    cancelNotification(id)
+    cancelAllNotifications()
+
+  Zona horaria por defecto: America/Mexico_City
+
+
+--------------------------------------------------------------------------------
+A.6  RECONOCIMIENTO FACIAL ON-DEVICE (ML Kit + TFLite)
+--------------------------------------------------------------------------------
+  Tecnología  : Google ML Kit Face Detection + MobileFaceNet (TFLite)
+  Tipo        : 100% local, sin API remota en tiempo real
+  Archivo     : lib/services/face_embedding_service.dart (TFLite)
+                lib/services/auth_service.dart (comparación de vectores)
+
+  Flujo de operación:
+    1. Captura imagen del rostro con cámara del dispositivo
+    2. Google ML Kit detecta landmarks y recorta el rostro
+    3. MobileFaceNet (modelo .tflite) genera vector de 128/512 dimensiones
+    4. Vector se almacena en Supabase: tabla face_biometrics (JSONB)
+    5. En login facial: se obtienen todos los vectores de la BD
+    6. Se calcula similitud de coseno entre el vector capturado y cada almacenado
+    7. Si similitud >= 0.75 → autenticación exitosa
+
+  Fórmula de similitud de coseno (auth_service.dart):
+    similitud = (v1 · v2) / (|v1| × |v2|)
+    Umbral aceptado: 0.75 (75%)
+
+
+--------------------------------------------------------------------------------
+A.7  ONVIF PTZ (cámaras IP TV-628)
+--------------------------------------------------------------------------------
+  Protocolo : ONVIF/SOAP sobre HTTP
+  URL       : http://{host}:{onvif_port}/onvif/ptz_service
+  Archivo   : home_bridge/bridge.py — métodos _execute_ptz(), _ptz_move_soap(),
+                                       _ptz_stop_soap()
+
+  Comandos SOAP implementados:
+    ContinuousMove (PanTilt + Zoom)  → comandos: left, right, up, down,
+                                                  zoom_in, zoom_out
+    Stop (PanTilt + Zoom)            → comando: stop
+
+  Parámetros de velocidad:
+    left  → x=-0.5, y=0.0,  zoom=0.0
+    right → x=+0.5, y=0.0,  zoom=0.0
+    up    → x=0.0,  y=+0.5, zoom=0.0
+    down  → x=0.0,  y=-0.5, zoom=0.0
+    zoom+ → x=0.0,  y=0.0,  zoom=+0.5
+    zoom- → x=0.0,  y=0.0,  zoom=-0.5
+  Tras cada movimiento se envía Stop automáticamente (0.5s después).
+
+
+================================================================================
+SECCIÓN B — COMUNICACIÓN CON LA BASE DE DATOS
+================================================================================
+
+--------------------------------------------------------------------------------
+B.1  CONFIGURACIÓN DE LA CONEXIÓN
+--------------------------------------------------------------------------------
+  Archivo   : lib/config/supabase_config.dart
+    const supabaseUrl    = 'https://ujbqnsdznvjjrqbrguyx.supabase.co'
+    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+
+  Archivo   : lib/config/supabase_client.dart
+    final supabase = Supabase.instance.client;       // instancia global
+    User? get currentUser   → supabase.auth.currentUser
+    String? get currentUserId → supabase.auth.currentUser?.id
+    bool get isAuthenticated → supabase.auth.currentUser != null
+
+  Inicialización en main.dart:
+    await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey)
+
+  Configuración Home Bridge (Python):
+    home_bridge/config.json  (no incluido en repositorio por seguridad)
+    {
+      "supabase_url": "...",
+      "supabase_anon_key": "...",
+      "user_email": "...",
+      "user_password": "..."
+    }
+    → SupabaseREST(url, anon_key) + sign_in(email, password)
+
+
+--------------------------------------------------------------------------------
+B.2  ESQUEMA DE BASE DE DATOS (supabase_schema.sql)
+--------------------------------------------------------------------------------
+  Motor: PostgreSQL (gestionado por Supabase)
+  Extensión: uuid-ossp (UUID v4 como PK de todas las tablas)
+  Seguridad: Row Level Security (RLS) activada en TODAS las tablas
+
+  TABLAS PRINCIPALES:
+  ┌───────────────────────┬───────────────────────────────────────────────────┐
+  │ Tabla                 │ Descripción                                       │
+  ├───────────────────────┼───────────────────────────────────────────────────┤
+  │ public.users          │ Perfil extendido de auth.users (nombre, email)    │
+  │ public.face_biometrics│ Vectores faciales (JSONB), vinculados a users     │
+  │ public.baby_profiles  │ Perfiles de bebés (nombre, fecha de nac., foto)   │
+  │ public.feeding_entries│ Registros de alimentación (tipo, cantidad, hora)  │
+  │ public.medical_appointments│ Citas médicas y vacunas programadas         │
+  │ public.medicines      │ Medicamentos con horarios (JSONB: times[])        │
+  │ public.vaccine_records│ Estado de vacunas (aplicadas / pendientes)        │
+  │ public.sleep_sessions │ Sesiones de sueño (inicio, fin, duración)         │
+  │ public.diary_milestones│ Hitos del diario del bebé con foto opcional      │
+  │ public.camera_configs │ Configuración de cámaras IP por usuario           │
+  │ public.camera_streams │ Estado en tiempo real de cámaras (heartbeat)      │
+  │ public.ptz_commands   │ Cola de comandos PTZ remotos pendientes           │
+  └───────────────────────┴───────────────────────────────────────────────────┘
+
+  RELACIONES:
+    auth.users ──── (1:1) ──── public.users
+    public.users ──── (1:N) ──── public.baby_profiles
+    public.users ──── (1:N) ──── public.face_biometrics
+    public.users ──── (1:N) ──── public.camera_configs
+    public.users ──── (1:N) ──── public.camera_streams
+    public.users ──── (1:N) ──── public.ptz_commands
+    public.baby_profiles ──── (1:N) ──── public.feeding_entries
+    public.baby_profiles ──── (1:N) ──── public.medical_appointments
+    public.baby_profiles ──── (1:N) ──── public.medicines
+    public.baby_profiles ──── (1:N) ──── public.vaccine_records
+    public.baby_profiles ──── (1:N) ──── public.sleep_sessions
+    public.baby_profiles ──── (1:N) ──── public.diary_milestones
+
+  ÍNDICES creados:
+    idx_face_biometrics_user_id          ON face_biometrics(user_id)
+    idx_baby_profiles_user_id            ON baby_profiles(user_id)
+    idx_feeding_entries_baby_id          ON feeding_entries(baby_id)
+    idx_feeding_entries_user_id          ON feeding_entries(user_id)
+    idx_feeding_entries_timestamp        ON feeding_entries(timestamp DESC)
+    idx_medical_appointments_baby_id     ON medical_appointments(baby_id)
+    idx_medical_appointments_date        ON medical_appointments(date)
+    idx_medicines_baby_id                ON medicines(baby_id)
+    idx_vaccine_records_baby_id          ON vaccine_records(baby_id)
+    idx_sleep_sessions_baby_id           ON sleep_sessions(baby_id)
+    idx_sleep_sessions_start_time        ON sleep_sessions(start_time DESC)
+    idx_diary_milestones_baby_id         ON diary_milestones(baby_id)
+    idx_diary_milestones_date            ON diary_milestones(date DESC)
+    idx_camera_configs_user_id           ON camera_configs(user_id)
+    idx_camera_streams_user_camera       UNIQUE ON camera_streams(user_id, camera_id)
+    idx_ptz_commands_pending             ON ptz_commands(user_id, camera_id, executed)
+                                          WHERE executed = FALSE
+
+
+--------------------------------------------------------------------------------
+B.3  SEGURIDAD: ROW LEVEL SECURITY (RLS)
+--------------------------------------------------------------------------------
+  Todas las tablas tienen RLS habilitado con el mismo patrón:
+
+    SELECT → USING (auth.uid() = user_id)
+    INSERT → WITH CHECK (auth.uid() = user_id)
+    UPDATE → USING (auth.uid() = user_id)
+    DELETE → USING (auth.uid() = user_id)
+
+  Excepción — public.users:
+    SELECT/UPDATE → USING (auth.uid() = id)
+    INSERT        → WITH CHECK (auth.uid() = id)
+
+  El campo user_id en todas las tablas de datos del bebé actúa como
+  filtro de aislamiento total: un usuario nunca puede ver ni modificar
+  datos de otro usuario, incluso si conoce el UUID.
+
+
+--------------------------------------------------------------------------------
+B.4  TRIGGERS Y FUNCIONES AUTOMÁTICAS
+--------------------------------------------------------------------------------
+  update_updated_at_column()   (Función PL/pgSQL)
+    Actualiza la columna updated_at con NOW() antes de cada UPDATE.
+    Triggers asignados:
+      update_users_updated_at         → BEFORE UPDATE ON public.users
+      update_baby_profiles_updated_at → BEFORE UPDATE ON public.baby_profiles
+
+  handle_new_user()   (Función PL/pgSQL — SECURITY DEFINER)
+    Se ejecuta automáticamente cuando se crea un usuario en auth.users.
+    Inserta en public.users:
+      { id: NEW.id, email: NEW.email,
+        full_name: COALESCE(raw_user_meta_data->>'full_name', 'Usuario') }
+    Trigger: on_auth_user_created → AFTER INSERT ON auth.users
+
+  clean_old_ptz_commands()   (Función RPC)
+    Elimina registros de ptz_commands donde created_at < NOW() - 5 minutos.
+    SECURITY DEFINER para poder borrar sin RLS.
+    Llamada periódica desde home_bridge/bridge.py cada 60 segundos.
+
+
+--------------------------------------------------------------------------------
+B.5  PERSISTENCIA LOCAL (SharedPreferences)
+--------------------------------------------------------------------------------
+  Archivo : lib/services/storage_service.dart
+  Plugin  : shared_preferences
+
+  Uso: Caché local offline para las mismas entidades que están en Supabase.
+  Funciona como capa de respaldo cuando no hay conexión.
+
+  Claves de almacenamiento:
+  ┌─────────────────────────────┬────────────────────────────────────┐
+  │ Clave (key)                 │ Contenido                          │
+  ├─────────────────────────────┼────────────────────────────────────┤
+  │ feeding_entries             │ List<FeedingEntry>  (JSON)          │
+  │ medical_appointments        │ List<MedicalAppointment>  (JSON)    │
+  │ medicine_reminders          │ List<MedicineReminder>  (JSON)      │
+  │ health_measurements         │ List<HealthMeasurement>  (JSON)     │
+  │ vaccine_records             │ List<VaccineRecord>  (JSON)         │
+  │ sleep_sessions              │ List<SleepSession>  (JSON)          │
+  └─────────────────────────────┴────────────────────────────────────┘
+
+  Métodos por entidad:  save___(), load___(), clear___()
+  Serialización: toJson() / fromJson() definidos en cada modelo
+
+
+--------------------------------------------------------------------------------
+B.6  FLUJO DE DATOS — CÁMARA REMOTA (fuera de red local)
+--------------------------------------------------------------------------------
+  Arquitectura de relay sin port-forwarding:
+
+    [Cámara IP TV-628]
+         │ RTSP stream
+         ▼
+    [PC Local — home_bridge/bridge.py]
+         │ OpenCV captura frames
+         │ Redimensiona a 640px, JPEG quality=70 (máx 150 KB)
+         │ POST /storage/v1/object/camera-streams/{userId}/{camId}/latest.jpg
+         │ POST /rest/v1/camera_streams  (UPSERT: heartbeat + URL firmada)
+         ▼
+    [Supabase Storage + PostgreSQL]
+         │ (polling cada 500ms por defecto, ajustable por fps)
+         ▼
+    [Flutter App — CameraRelayService]
+         │ SELECT camera_streams WHERE user_id + camera_id
+         │ HTTP GET frame_url  (URL firmada, válida 5min)
+         │ Stream<Uint8List> frameStream → renderiza en widget Image.memory
+         ▼
+    [Usuario — pantalla del teléfono en cualquier parte del mundo]
+
+  Control PTZ remoto:
+    [App Flutter] → INSERT ptz_commands {command}
+    [Bridge Python] → SELECT ptz_commands WHERE executed=false  (cada frame)
+    [Bridge Python] → ONVIF SOAP → Cámara IP
+    [Bridge Python] → UPDATE ptz_commands SET executed=true
+
+
+--------------------------------------------------------------------------------
+B.7  MODELOS DE DATOS Y SERIALIZACIÓN (Flutter)
+--------------------------------------------------------------------------------
+  Archivos: lib/models/app_models.dart
+            lib/models/baby_profile.dart
+            lib/services/storage_service.dart  (modelos locales)
+
+  Todos los modelos implementan el patrón:
+    - Constructor con campos requeridos/opcionales
+    - factory Model.fromJson(Map<String, dynamic> json) → deserializa JSON
+    - Map<String, dynamic> toJson() → serializa a JSON
+
+  Modelos principales:
+    BabyProfile        → id, user_id, name, birthdate, gender, photo_url
+    FeedingEntry       → baby_id, user_id, type, amount, notes, timestamp
+    MedicalAppointment → baby_id, user_id, title, doctor_name, date, completed
+    Medicine           → baby_id, user_id, name, dosage, frequency, times
+    VaccineRecord      → baby_id, user_id, vaccine_id, vaccine_name, applied
+    SleepSessionModel  → baby_id, user_id, start_time, end_time, duration_minutes
+    DiaryMilestone     → baby_id, user_id, title, description, date, photo_url
+    CameraConfigModel  → user_id, name, host, protocol, rtsp_port, ...
+    RemoteCameraState  → cameraId, cameraName, isOnline, lastFrameUrl, fps
+
+
+================================================================================
+SECCIÓN C — RESUMEN DE DEPENDENCIAS TÉCNICAS
+================================================================================
+
+  pubspec.yaml (Flutter)
+  ┌─────────────────────────────────┬────────────────────────────────────────┐
+  │ Paquete                         │ Uso                                    │
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ supabase_flutter                │ SDK Supabase (Auth + DB + Storage)     │
+  │ flutter_local_notifications     │ Notificaciones locales programadas     │
+  │ timezone                        │ Zonas horarias para notificaciones     │
+  │ shared_preferences              │ Persistencia local (caché offline)     │
+  │ http                            │ Descarga de frames JPEG remotos        │
+  │ google_mlkit_face_detection     │ Detección de rostros en tiempo real    │
+  │ tflite_flutter                  │ Inferencia del modelo MobileFaceNet    │
+  └─────────────────────────────────┴────────────────────────────────────────┘
+
+  requirements.txt (Python — Home Bridge)
+  ┌─────────────────────────────────┬────────────────────────────────────────┐
+  │ Paquete                         │ Uso                                    │
+  ├─────────────────────────────────┼────────────────────────────────────────┤
+  │ opencv-python                   │ Captura RTSP + codificación JPEG       │
+  │ requests                        │ Llamadas REST a Supabase sin SDK       │
+  └─────────────────────────────────┴────────────────────────────────────────┘
+
+
+================================================================================
+  Fin del documento — APIS_Y_BASE_DE_DATOS.txt
+================================================================================

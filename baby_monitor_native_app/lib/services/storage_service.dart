@@ -206,12 +206,14 @@ class FeedingEntry {
     required this.amount,
     required this.type,
     this.notes,
+    this.givenBy, // Nombre del cuidador que dio la toma
   });
 
   final DateTime time;
   final double amount;
   final String type;
   final String? notes;
+  final String? givenBy;
 
   Map<String, dynamic> toJson() {
     return {
@@ -219,6 +221,7 @@ class FeedingEntry {
       'amount': amount,
       'type': type,
       'notes': notes,
+      'givenBy': givenBy,
     };
   }
 
@@ -228,8 +231,28 @@ class FeedingEntry {
       amount: (json['amount'] as num).toDouble(),
       type: json['type'] as String,
       notes: json['notes'] as String?,
+      givenBy: json['givenBy'] as String?,
     );
   }
+}
+
+// Registro de una dosis de medicamento confirmada
+class MedicineDoseConfirmation {
+  MedicineDoseConfirmation({required this.givenBy, required this.timestamp});
+
+  final String givenBy; // Nombre del cuidador que confirmó la dosis
+  final DateTime timestamp;
+
+  Map<String, dynamic> toJson() => {
+        'givenBy': givenBy,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  factory MedicineDoseConfirmation.fromJson(Map<String, dynamic> json) =>
+      MedicineDoseConfirmation(
+        givenBy: json['givenBy'] as String,
+        timestamp: DateTime.parse(json['timestamp'] as String),
+      );
 }
 
 class MedicalAppointment {
@@ -284,14 +307,19 @@ class MedicineReminder {
     required this.times,
     this.notes,
     this.notificationIds = const [],
-  });
+    List<MedicineDoseConfirmation>? doseConfirmations,
+  }) : doseConfirmations = doseConfirmations ?? [];
 
   final String name;
   final String dosage;
-  final int frequency; // veces al día
+  final int frequency;
   final List<TimeOfDay> times;
   final String? notes;
-  List<int> notificationIds; // IDs para cancelar notificaciones
+  List<int> notificationIds;
+  List<MedicineDoseConfirmation> doseConfirmations; // Historial de dosis confirmadas
+
+  MedicineDoseConfirmation? get lastDose =>
+      doseConfirmations.isEmpty ? null : doseConfirmations.last;
 
   Map<String, dynamic> toJson() {
     return {
@@ -301,6 +329,7 @@ class MedicineReminder {
       'times': times.map((t) => '${t.hour}:${t.minute}').toList(),
       'notes': notes,
       'notificationIds': notificationIds,
+      'doseConfirmations': doseConfirmations.map((d) => d.toJson()).toList(),
     };
   }
 
@@ -316,6 +345,11 @@ class MedicineReminder {
       }).toList(),
       notes: json['notes'] as String?,
       notificationIds: (json['notificationIds'] as List?)?.cast<int>() ?? [],
+      doseConfirmations: (json['doseConfirmations'] as List?)
+              ?.map((d) => MedicineDoseConfirmation.fromJson(
+                  d as Map<String, dynamic>))
+              .toList() ??
+          [],
     );
   }
 }
@@ -359,13 +393,15 @@ class VaccineRecord {
     required this.ageInMonths,
     this.appliedDate,
     this.notes,
-  });
+    List<DateTime>? boosterDates,
+  }) : boosterDates = boosterDates ?? [];
 
-  final String vaccineId; // ID único de la vacuna
-  final String name; // Nombre de la vacuna
-  final int ageInMonths; // Edad recomendada en meses
-  DateTime? appliedDate; // Fecha en que se aplicó (null si no se ha aplicado)
+  final String vaccineId;
+  final String name;
+  final int ageInMonths;
+  DateTime? appliedDate;
   String? notes;
+  List<DateTime> boosterDates; // Refuerzos / campañas adicionales
 
   bool get isApplied => appliedDate != null;
 
@@ -376,6 +412,7 @@ class VaccineRecord {
       'ageInMonths': ageInMonths,
       'appliedDate': appliedDate?.toIso8601String(),
       'notes': notes,
+      'boosterDates': boosterDates.map((d) => d.toIso8601String()).toList(),
     };
   }
 
@@ -384,10 +421,14 @@ class VaccineRecord {
       vaccineId: json['vaccineId'] as String,
       name: json['name'] as String,
       ageInMonths: json['ageInMonths'] as int,
-      appliedDate: json['appliedDate'] != null 
+      appliedDate: json['appliedDate'] != null
           ? DateTime.parse(json['appliedDate'] as String)
           : null,
       notes: json['notes'] as String?,
+      boosterDates: (json['boosterDates'] as List?)
+              ?.map((d) => DateTime.parse(d as String))
+              .toList() ??
+          [],
     );
   }
 }

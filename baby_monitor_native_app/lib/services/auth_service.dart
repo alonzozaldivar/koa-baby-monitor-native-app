@@ -84,7 +84,7 @@ class AuthService {
           .from('face_biometrics')
           .select('user_id, face_encoding');
 
-      if (response == null || (response as List).isEmpty) {
+      if (response.isEmpty) {
         throw Exception('No hay rostros registrados en el sistema');
       }
 
@@ -93,7 +93,7 @@ class AuthService {
       double maxSimilarity = 0.0;
       const double threshold = 0.75; // Umbral de similitud (75%)
 
-      for (final record in response as List) {
+      for (final record in response) {
         final storedEncoding = record['face_encoding'] as Map<String, dynamic>;
         final similarity = _calculateSimilarity(faceEncoding, storedEncoding);
         
@@ -114,11 +114,7 @@ class AuthService {
           .eq('id', matchedUserId)
           .single();
 
-      if (userData == null) {
-        throw Exception('Usuario no encontrado');
-      }
-
-      // 4. Crear sesión con token de autenticación facial
+      // 4. Crear sesión
       // Nota: Esto requiere una función de servidor en Supabase
       // Por ahora, asumimos que el usuario ya tiene una sesión válida
       debugPrint('✅ Rostro reconocido con ${(maxSimilarity * 100).toStringAsFixed(1)}% de similitud');

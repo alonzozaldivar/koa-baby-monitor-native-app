@@ -1,0 +1,405 @@
+================================================================
+  BABY MONITOR NATIVE APP — KOA
+  DIAGRAMAS Y GUÍA DE CAPTURAS DE CÓDIGO
+  Complemento de: DESARROLLO_Y_PRUEBAS.txt
+================================================================
+
+
+================================================================
+PARTE 1 — DIAGRAMAS (para sección C y D)
+================================================================
+  Herramienta recomendada para versión visual profesional:
+  → draw.io (app.diagrams.net) — GRATIS, exporta PNG/PDF
+  → Mermaid Live (mermaid.live) — pegar código y exportar
+  → Lucidchart (lucidchart.com) — diagramas colaborativos
+================================================================
+
+
+----------------------------------------------------------------
+DIAGRAMA 1 — ARQUITECTURA GENERAL DEL SISTEMA
+(Para sección C — Desarrollo de Funcionalidades)
+----------------------------------------------------------------
+
+  ┌──────────────────────────────────────────────────────┐
+  │              DISPOSITIVO MÓVIL (Flutter)             │
+  │                                                      │
+  │  ┌────────────┐  ┌────────────┐  ┌────────────────┐ │
+  │  │  Pantalla  │  │  Pantalla  │  │   Pantalla     │ │
+  │  │  Login /   │  │  Captura   │  │   Dashboard /  │ │
+  │  │  Registro  │  │  Facial    │  │   Admin        │ │
+  │  └─────┬──────┘  └─────┬──────┘  └───────┬────────┘ │
+  │        │               │                 │           │
+  │  ┌─────▼───────────────▼─────────────────▼────────┐ │
+  │  │              CAPA DE SERVICIOS                  │ │
+  │  │  AuthService │ FaceEmbeddingService │           │ │
+  │  │  StorageService │ NotificationService           │ │
+  │  └──────────────────────┬──────────────────────────┘ │
+  └─────────────────────────┼────────────────────────────┘
+                            │ HTTPS / JWT
+            ┌───────────────┼───────────────────┐
+            │               │                   │
+   ┌────────▼──────┐  ┌─────▼──────┐  ┌────────▼──────┐
+   │   SUPABASE    │  │  FIREBASE  │  │  TFLite Model │
+   │  (PostgreSQL) │  │    FCM     │  │ MobileFaceNet │
+   │  Auth + RLS   │  │  (Notif.)  │  │  (On-device)  │
+   │  Storage      │  └────────────┘  └───────────────┘
+   └───────────────┘
+
+
+Código Mermaid (pegar en mermaid.live):
+────────────────────────────────────────
+graph TB
+  subgraph Mobile["Dispositivo Móvil - Flutter"]
+    A[Login Screen] --> S[AuthService]
+    B[FaceCaptureScreen] --> F[FaceEmbeddingService]
+    C[Dashboard] --> SS[SupabaseService]
+    F --> S
+    S --> SS
+  end
+  SS --> DB[(Supabase PostgreSQL)]
+  SS --> ST[Supabase Storage]
+  S --> FCM[Firebase FCM]
+  F --> TF[MobileFaceNet TFLite]
+────────────────────────────────────────
+
+
+----------------------------------------------------------------
+DIAGRAMA 2 — FLUJO DE AUTENTICACIÓN FACIAL
+(Para sección C.1 — Autenticación Biométrica)
+----------------------------------------------------------------
+
+  Usuario
+    │
+    ▼
+  [Abrir App]
+    │
+    ▼
+  [Pantalla Login] ──────────────────────────────────────────┐
+    │                                                         │
+    ▼                                                         │
+  [Activar cámara frontal]                                    │
+    │                                                         │
+    ▼                                                         │
+  [Detectar rostro con Google ML Kit]                         │
+    │                                                         │
+    ├── NO detectado ──► [Mensaje: "Posiciona tu rostro"]     │
+    │                          │                             │
+    │                          └──────────────────────────►  │
+    │                                                         │
+    ▼ SÍ detectado                                           │
+  [Capturar imagen]                                           │
+    │                                                         │
+    ▼                                                         │
+  [FaceEmbeddingService.generateEmbedding()]                  │
+    │  ↳ Resize imagen 112x112                               │
+    │  ↳ Normalizar píxeles [-1, 1]                          │
+    │  ↳ Inferencia MobileFaceNet TFLite                     │
+    │  ↳ Normalización L2 del vector                         │
+    │                                                         │
+    ▼                                                         │
+  [AuthService.signInWithFace()]                              │
+    │                                                         │
+    ▼                                                         │
+  [Consultar Supabase: tabla face_biometrics]                 │
+    │                                                         │
+    ▼                                                         │
+  [cosineSimilarity() con cada embedding]                     │
+    │                                                         │
+    ├── similitud < 0.75 ──► [Acceso denegado] ─────────────►┘
+    │                          [Log fallido]
+    │
+    ▼ similitud >= 0.75
+  [Sesión iniciada → Home]
+  [Log de acceso exitoso en Supabase]
+
+
+Código Mermaid (pegar en mermaid.live):
+────────────────────────────────────────
+flowchart TD
+  A([Abrir App]) --> B[Pantalla Login]
+  B --> C[Activar cámara frontal]
+  C --> D{¿Rostro detectado?}
+  D -- No --> E[Mensaje: Posiciona tu rostro]
+  E --> C
+  D -- Sí --> F[Capturar imagen]
+  F --> G[FaceEmbeddingService\ngenerateEmbedding]
+  G --> H[Resize 112x112\nNormalizar pixels\nInferencia TFLite\nNorm. L2]
+  H --> I[AuthService.signInWithFace]
+  I --> J[Consultar face_biometrics\nen Supabase]
+  J --> K[cosineSimilarity\nvs cada embedding]
+  K --> L{similitud >= 0.75?}
+  L -- No --> M[Acceso Denegado\nLog fallido]
+  M --> B
+  L -- Sí --> N([Sesión Iniciada\nHome Screen])
+────────────────────────────────────────
+
+
+----------------------------------------------------------------
+DIAGRAMA 3 — FLUJO DE REGISTRO DE BIOMETRÍA FACIAL
+(Para sección C.1 — Registro facial)
+----------------------------------------------------------------
+
+  Tutor / Admin
+      │
+      ▼
+  [Pantalla Registro de cuenta]
+      │
+      ▼
+  [FaceCaptureScreen (isLogin: false)]
+      │
+      ▼
+  [Cámara detecta rostro]
+      │
+      ▼
+  [Captura imagen]
+      │
+      ▼
+  [generateEmbedding() → vector float32 de 192 dims]
+      │
+      ▼
+  [AuthService.registerFaceBiometric()]
+      │
+      ▼
+  [INSERT en Supabase: tabla face_biometrics]
+      │  ↳ user_id
+      │  ↳ face_encoding (JSON cifrado AES-256)
+      │  ↳ device_id
+      │  ↳ registered_at (timestamp UTC)
+      │
+      ▼
+  [✅ Biometría registrada]
+      │
+      ▼
+  [Regresar a pantalla de configuración]
+
+
+----------------------------------------------------------------
+DIAGRAMA 4 — DIAGRAMA ENTIDAD-RELACIÓN (Base de datos)
+(Para sección C.2 / C.3 — Modelos de datos)
+----------------------------------------------------------------
+
+  ┌──────────────────┐       ┌───────────────────────┐
+  │     users        │       │    face_biometrics     │
+  ├──────────────────┤       ├───────────────────────┤
+  │ PK id (uuid)     │◄──────│ PK id (uuid)           │
+  │    email         │       │ FK user_id             │
+  │    full_name     │       │    face_encoding (JSON)│
+  │    created_at    │       │    device_id           │
+  └────────┬─────────┘       │    registered_at       │
+           │                 └───────────────────────┘
+           │ 1
+           │ N
+  ┌────────▼─────────┐       ┌───────────────────────┐
+  │   baby_profiles  │       │     access_log         │
+  ├──────────────────┤       ├───────────────────────┤
+  │ PK id (uuid)     │◄──────│ PK id (uuid)           │
+  │ FK user_id       │       │ FK baby_id             │
+  │    name          │       │ FK user_id             │
+  │    birthdate     │       │    event_type          │
+  │    gender        │       │    (entrada/salida)    │
+  │    photo_url     │       │    timestamp (UTC)     │
+  │    created_at    │       │    similarity_score    │
+  └──────────────────┘       └───────────────────────┘
+
+
+----------------------------------------------------------------
+DIAGRAMA 5 — PIRÁMIDE DE PRUEBAS
+(Para sección D — Testing)
+----------------------------------------------------------------
+
+                     /\
+                    /  \
+                   / E2E\     ← IT-01 al IT-04
+                  / Tests\      (Integration Tests)
+                 /────────\
+                /  Widget  \   ← WT-01 al WT-04
+               /   Tests    \    (flutter_test / WidgetTester)
+              /──────────────\
+             /  Unit Tests    \  ← UT-01 al UT-04
+            /  (flutter_test)  \   (Lógica de negocio aislada)
+           /────────────────────\
+
+           Más rápidas ──────────────► Más lentas
+           Más baratas ──────────────► Más costosas
+           Más cantidad ────────────► Menos cantidad
+
+
+----------------------------------------------------------------
+DIAGRAMA 6 — FLUJO DE PRUEBA UNITARIA (UT-01)
+(Para sección D.1 — Unit Tests)
+----------------------------------------------------------------
+
+  [Test UT-01: Validación de Cosine Similarity]
+  ─────────────────────────────────────────────
+  GIVEN: embedding A = [0.5, 0.8, 0.2, ...]  (L2-normalizado)
+         embedding B = [0.5, 0.8, 0.2, ...]  (idéntico)
+
+  WHEN:  FaceEmbeddingService.cosineSimilarity(A, B)
+
+  THEN:  resultado == 1.0  (similitud máxima)
+         resultado >= 0.75 → ACCESO PERMITIDO  ✓
+
+  ─────────────────────────────────────────────
+  GIVEN: embedding A = [0.5, 0.8, 0.2, ...]
+         embedding B = [0.1, 0.3, 0.9, ...]  (persona distinta)
+
+  WHEN:  FaceEmbeddingService.cosineSimilarity(A, B)
+
+  THEN:  resultado ~= 0.40  (baja similitud)
+         resultado < 0.75  → ACCESO DENEGADO  ✓
+
+
+================================================================
+PARTE 2 — GUÍA DE CAPTURAS DE CÓDIGO
+(Archivos reales del proyecto)
+================================================================
+  Herramienta recomendada para capturas con estilo:
+  → Carbon (carbon.now.sh) — GRATIS, temas de colores
+  → Ray.so (ray.so) — GRATIS, fondo degradado
+  → Polacode (extensión VS Code) — captura desde el editor
+  → Screenshot normal del VS Code con tema Dracula/One Dark
+================================================================
+
+
+----------------------------------------------------------------
+CAPTURA 1 — Inicialización del modelo TFLite
+Asociada a: C.1 — Autenticación Biométrica
+----------------------------------------------------------------
+Archivo : lib/services/face_embedding_service.dart
+Líneas  : 33 — 60
+Qué muestra:
+  → Carga del modelo MobileFaceNet desde assets
+  → Detección dinámica del tamaño del embedding
+  → Manejo de errores de inicialización
+
+
+----------------------------------------------------------------
+CAPTURA 2 — Generación de embedding facial (pipeline completo)
+Asociada a: C.1 — Autenticación Biométrica
+----------------------------------------------------------------
+Archivo : lib/services/face_embedding_service.dart
+Líneas  : 69 — 143
+Qué muestra:
+  → Recorte del bounding box con padding
+  → Resize a 112x112 px
+  → Normalización de píxeles [-1, 1]
+  → Inferencia TFLite
+  → Normalización L2 del vector de salida
+
+
+----------------------------------------------------------------
+CAPTURA 3 — Cálculo de similitud coseno
+Asociada a: C.1 / D.1 (UT-01)
+----------------------------------------------------------------
+Archivo : lib/services/face_embedding_service.dart
+Líneas  : 157 — 170
+Qué muestra:
+  → Implementación del cálculo de similitud de coseno
+  → Umbral recomendado: >= 0.70
+  → Valor de retorno en rango [0, 1]
+
+
+----------------------------------------------------------------
+CAPTURA 4 — Login con reconocimiento facial
+Asociada a: C.1 — Autenticación con Supabase
+----------------------------------------------------------------
+Archivo : lib/services/auth_service.dart
+Líneas  : 80 — 132
+Qué muestra:
+  → Consulta a la tabla face_biometrics en Supabase
+  → Bucle de comparación con umbral 0.75 (75%)
+  → Lógica de mejor coincidencia (maxSimilarity)
+
+
+----------------------------------------------------------------
+CAPTURA 5 — Registro de biometría facial en Supabase
+Asociada a: C.1 — Registro de datos biométricos
+----------------------------------------------------------------
+Archivo : lib/services/auth_service.dart
+Líneas  : 183 — 203
+Qué muestra:
+  → INSERT en tabla face_biometrics
+  → Campos: user_id, face_encoding, device_id
+
+
+----------------------------------------------------------------
+CAPTURA 6 — Inicialización de cámara frontal
+Asociada a: C.1 / C.4 — Captura y monitoreo
+----------------------------------------------------------------
+Archivo : lib/screens/face_capture_screen.dart
+Líneas  : 39 — 67
+Qué muestra:
+  → Selección de cámara frontal con availableCameras()
+  → Inicialización del CameraController
+  → Manejo de errores de permisos
+
+
+----------------------------------------------------------------
+CAPTURA 7 — Detección facial en tiempo real (stream)
+Asociada a: C.1 — Detección con Google ML Kit
+----------------------------------------------------------------
+Archivo : lib/screens/face_capture_screen.dart
+Líneas  : 77 — 108
+Qué muestra:
+  → startImageStream() para procesamiento frame a frame
+  → Llamada a FaceDetector.processImage()
+  → Actualización de estado con setState()
+
+
+----------------------------------------------------------------
+CAPTURA 8 — FaceOvalPainter (CustomPainter)
+Asociada a: C.1 — UI de captura facial
+----------------------------------------------------------------
+Archivo : lib/screens/face_capture_screen.dart
+Líneas  : 371 — 416
+Qué muestra:
+  → Overlay con blend mode para "recortar" el óvalo
+  → Cambio de color del borde (gris → verde) al detectar rostro
+
+
+----------------------------------------------------------------
+CAPTURA 9 — Modelo BabyProfile (fromJson / toJson)
+Asociada a: C.2 — Gestión de perfiles infantiles
+----------------------------------------------------------------
+Archivo : lib/models/baby_profile.dart
+Líneas  : 1 — 88
+Qué muestra:
+  → Estructura del modelo con todos sus campos
+  → Serialización/deserialización JSON para Supabase
+  → Getters calculados: ageInMonths, ageInDays
+
+
+----------------------------------------------------------------
+CAPTURA 10 — Registro de usuario con email y contraseña
+Asociada a: C.2 — Autenticación estándar
+----------------------------------------------------------------
+Archivo : lib/services/auth_service.dart
+Líneas  : 14 — 42
+Qué muestra:
+  → Llamada a supabase.auth.signUp()
+  → Manejo de AuthException
+  → Almacenamiento de full_name en metadata
+
+
+----------------------------------------------------------------
+CÓMO HACER LA CAPTURA CON CARBON (Recomendado)
+----------------------------------------------------------------
+1. Ir a: https://carbon.now.sh
+2. Seleccionar tema: "Dracula" o "One Dark Pro"
+3. Lenguaje: "Dart"
+4. Pegar el código del rango de líneas indicado
+5. Exportar como PNG a 2x
+6. Insertar la imagen en el documento/presentación
+
+CÓMO HACER LA CAPTURA CON RAY.SO
+1. Ir a: https://ray.so
+2. Pegar el código, seleccionar "Dart"
+3. Elegir un fondo de color (recomendado: Dark o Candy)
+4. Exportar PNG
+
+
+================================================================
+  Documento generado: 2026-03-15
+  Proyecto: KOA Baby Monitor Native App
+  Archivos fuente: lib/services/ | lib/screens/ | lib/models/
+================================================================

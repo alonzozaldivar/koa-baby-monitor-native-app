@@ -37,6 +37,9 @@ import 'services/notification_service.dart';
 import 'services/subscription_service.dart';
 import 'services/camera_relay_service.dart';
 import 'screens/premium_paywall_page.dart';
+import 'screens/tienda_koa_page.dart';
+import 'services/koa_points_service.dart';
+import 'services/caregiver_account_service.dart';
 
 // Pantallas de autenticación
 import 'screens/welcome_screen.dart';
@@ -324,6 +327,64 @@ class AppState extends ChangeNotifier {
       'remote_offline': {'es': 'Cámara remota sin conexión', 'en': 'Remote camera offline'},
       'remote_no_bridge': {'es': 'Home Bridge no detectado. Ejecuta bridge.py en tu PC.', 'en': 'Home Bridge not detected. Run bridge.py on your PC.'},
       'remote_latency': {'es': 'Latencia', 'en': 'Latency'},
+      // Pediatrician
+      'pediatrician': {'es': 'Pediatra', 'en': 'Pediatrician'},
+      'pediatrician_desc': {'es': 'Llama a tu pediatra o emergencias.', 'en': 'Call your pediatrician or emergencies.'},
+      // Registro / filters
+      'filter_all': {'es': 'Todos', 'en': 'All'},
+      'filter_food': {'es': 'Comida', 'en': 'Food'},
+      'filter_sleep': {'es': 'Sueño', 'en': 'Sleep'},
+      'filter_health': {'es': 'Salud', 'en': 'Health'},
+      'filter_vaccine': {'es': 'Vacunas', 'en': 'Vaccines'},
+      'filter_appointment': {'es': 'Citas', 'en': 'Appointments'},
+      // Activity labels
+      'breast': {'es': 'Lactancia', 'en': 'Breastfeeding'},
+      'bottle': {'es': 'Biberón', 'en': 'Bottle'},
+      'solids': {'es': 'Sólidos', 'en': 'Solids'},
+      'feeding_label': {'es': 'Alimentación', 'en': 'Feeding'},
+      'sleep_ongoing': {'es': 'Sueño en curso', 'en': 'Ongoing sleep'},
+      'sleep_session': {'es': 'Sesión de sueño', 'en': 'Sleep session'},
+      'sleep_in_progress': {'es': 'En curso...', 'en': 'In progress...'},
+      'sleep_duration': {'es': 'Duración', 'en': 'Duration'},
+      'health_measurement': {'es': 'Medición de salud', 'en': 'Health measurement'},
+      'vaccine_applied_label': {'es': 'Vacuna aplicada', 'en': 'Vaccine applied'},
+      'appointment_pending': {'es': 'Pendiente', 'en': 'Pending'},
+      'appointment_done': {'es': 'Completada', 'en': 'Completed'},
+      // Date headers
+      'today': {'es': 'Hoy', 'en': 'Today'},
+      'yesterday': {'es': 'Ayer', 'en': 'Yesterday'},
+      'records_count': {'es': 'registros', 'en': 'records'},
+      // Stats page
+      'statistics_title': {'es': 'Estadísticas', 'en': 'Statistics'},
+      'summary': {'es': 'Resumen', 'en': 'Summary'},
+      'growth': {'es': 'Crecimiento', 'en': 'Growth'},
+      'no_data_yet': {'es': 'Aún no hay datos', 'en': 'No data yet'},
+      'no_data_desc': {'es': 'Registra actividades para ver tus estadísticas aquí', 'en': 'Record activities to see your stats here'},
+      'no_growth_data': {'es': 'No hay datos de crecimiento', 'en': 'No growth data yet'},
+      'no_growth_desc': {'es': 'Agrega mediciones en la sección Salud', 'en': 'Add measurements in the Health section'},
+      'feeding_stat': {'es': 'Alimentación', 'en': 'Feeding'},
+      'sleep_stat': {'es': 'Sueño', 'en': 'Sleep'},
+      'health_stat': {'es': 'Salud', 'en': 'Health'},
+      'total_records': {'es': 'Total registros', 'en': 'Total records'},
+      'avg_per_day': {'es': 'Promedio/día', 'en': 'Avg/day'},
+      'total_sessions': {'es': 'Total sesiones', 'en': 'Total sessions'},
+      'avg_duration': {'es': 'Promedio duración', 'en': 'Avg duration'},
+      'vaccines_applied': {'es': 'Vacunas aplicadas', 'en': 'Vaccines applied'},
+      'medical_appointments': {'es': 'Citas médicas', 'en': 'Medical appointments'},
+      'measurements_count': {'es': 'Mediciones', 'en': 'Measurements'},
+      // Charts
+      'weight_vs_age': {'es': 'Peso vs Edad', 'en': 'Weight vs Age'},
+      'height_vs_age': {'es': 'Talla vs Edad', 'en': 'Height vs Age'},
+      'your_baby': {'es': 'Tu bebé', 'en': 'Your baby'},
+      'who_median': {'es': 'P50 (OMS)', 'en': 'P50 (WHO)'},
+      'who_range': {'es': 'P3/P97 (OMS)', 'en': 'P3/P97 (WHO)'},
+      // Measurement table
+      'col_date': {'es': 'Fecha', 'en': 'Date'},
+      'col_age': {'es': 'Edad', 'en': 'Age'},
+      'col_weight': {'es': 'Peso', 'en': 'Weight'},
+      'col_height': {'es': 'Talla', 'en': 'Height'},
+      'measurements_history': {'es': 'Historial de mediciones', 'en': 'Measurements history'},
+      'export_pdf': {'es': 'Exportar informe PDF', 'en': 'Export PDF report'},
     };
     return translations[key]?[isSpanish ? 'es' : 'en'] ?? key;
   }
@@ -2157,7 +2218,11 @@ class _HomeContentState extends State<HomeContent> {
                       section: 'home',
                       languageCode: appState.locale.languageCode,
                     ),
-                    // Cuidadores — funcionalidad Premium
+                    const SizedBox(height: 12),
+                    // Banner KOA Puntos
+                    _KoaPointsBanner(),
+                    const SizedBox(height: 4),
+                    // Cuidadores
                     if (_isPremium)
                       const CaregiversSection()
                     else
@@ -2299,9 +2364,8 @@ class _HomeContentState extends State<HomeContent> {
                         ),
                         KoaFeatureCard(
                           icon: Icons.phone,
-                          title: 'Pediatra',
-                          description:
-                              'Llama a tu pediatra o emergencias.',
+                          title: appState.tr('pediatrician'),
+                          description: appState.tr('pediatrician_desc'),
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const PediatricianCallPage(),
@@ -2353,20 +2417,36 @@ class _RegistroPageState extends State<RegistroPage> {
   List<_ActivityItem> _activities = [];
   bool _isLoading = true;
   String _selectedFilter = 'all';
+  String _langCode = 'es'; // rastrea idioma para recargar actividades
 
-  final List<Map<String, dynamic>> _filters = [
-    {'key': 'all', 'label': 'Todos', 'icon': Icons.list_alt},
-    {'key': 'food', 'label': 'Comida', 'icon': Icons.restaurant},
-    {'key': 'sleep', 'label': 'Sueño', 'icon': Icons.bedtime},
-    {'key': 'health', 'label': 'Salud', 'icon': Icons.monitor_weight},
-    {'key': 'vaccine', 'label': 'Vacunas', 'icon': Icons.vaccines},
-    {'key': 'appointment', 'label': 'Citas', 'icon': Icons.local_hospital},
+  // Claves de filtros — las etiquetas se traducen en build()
+  static const List<Map<String, dynamic>> _filterDefs = [
+    {'key': 'all',         'trKey': 'filter_all',         'icon': Icons.list_alt},
+    {'key': 'food',        'trKey': 'filter_food',        'icon': Icons.restaurant},
+    {'key': 'sleep',       'trKey': 'filter_sleep',       'icon': Icons.bedtime},
+    {'key': 'health',      'trKey': 'filter_health',      'icon': Icons.monitor_weight},
+    {'key': 'vaccine',     'trKey': 'filter_vaccine',     'icon': Icons.vaccines},
+    {'key': 'appointment', 'trKey': 'filter_appointment', 'icon': Icons.local_hospital},
   ];
+
+  // Traduce según idioma activo sin necesitar context
+  String _t(String es, String en) => _langCode == 'es' ? es : en;
 
   @override
   void initState() {
     super.initState();
     _loadActivities();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = Provider.of<AppState>(context, listen: false);
+    final newLang = appState.locale.languageCode;
+    if (newLang != _langCode) {
+      _langCode = newLang;
+      _loadActivities(); // recargar con nuevas etiquetas
+    }
   }
 
   Future<void> _loadActivities() async {
@@ -2377,16 +2457,17 @@ class _RegistroPageState extends State<RegistroPage> {
       final feedings = await StorageService.loadFeedingEntries();
       for (final f in feedings) {
         final typeLabel = f.type == 'breast'
-            ? 'Lactancia'
+            ? _t('Lactancia', 'Breastfeeding')
             : f.type == 'bottle'
-                ? 'Biberón'
-                : 'Sólidos';
+                ? _t('Biberón', 'Bottle')
+                : _t('Sólidos', 'Solids');
         items.add(_ActivityItem(
           type: 'food',
           icon: Icons.restaurant,
-          title: 'Alimentación · $typeLabel',
+          title: '${_t('Alimentación', 'Feeding')} · $typeLabel',
           subtitle:
-              '${f.amount.toStringAsFixed(0)} ml${f.notes != null && f.notes!.isNotEmpty ? ' · ${f.notes}' : ''}',
+              '${f.amount.toStringAsFixed(0)} ml${f.notes != null && f.notes!.isNotEmpty ? ' · ${f.notes}' : ''}'
+              '${f.givenBy != null ? ' — 👤 ${f.givenBy}' : ''}',
           timestamp: f.time,
           color: const Color(0xFFFF9800),
         ));
@@ -2399,8 +2480,10 @@ class _RegistroPageState extends State<RegistroPage> {
         items.add(_ActivityItem(
           type: 'sleep',
           icon: Icons.bedtime,
-          title: s.isOngoing ? 'Sueño en curso' : 'Sesión de sueño',
-          subtitle: s.isOngoing ? 'En curso...' : 'Duración: ${s.durationFormatted}',
+          title: s.isOngoing ? _t('Sueño en curso', 'Ongoing sleep') : _t('Sesión de sueño', 'Sleep session'),
+          subtitle: s.isOngoing
+              ? _t('En curso...', 'In progress...')
+              : '${_t('Duración', 'Duration')}: ${s.durationFormatted}',
           timestamp: s.startTime,
           color: const Color(0xFF3F51B5),
         ));
@@ -2413,7 +2496,7 @@ class _RegistroPageState extends State<RegistroPage> {
         items.add(_ActivityItem(
           type: 'health',
           icon: Icons.monitor_weight,
-          title: 'Medición de salud',
+          title: _t('Medición de salud', 'Health measurement'),
           subtitle: '${m.weight} kg · ${m.height} cm',
           timestamp: m.date,
           color: const Color(0xFFE91E63),
@@ -2428,7 +2511,7 @@ class _RegistroPageState extends State<RegistroPage> {
           items.add(_ActivityItem(
             type: 'vaccine',
             icon: Icons.vaccines,
-            title: 'Vacuna aplicada',
+            title: _t('Vacuna aplicada', 'Vaccine applied'),
             subtitle: v.name,
             timestamp: v.appliedDate!,
             color: const Color(0xFF4CAF50),
@@ -2445,7 +2528,7 @@ class _RegistroPageState extends State<RegistroPage> {
           icon: Icons.local_hospital,
           title: a.type,
           subtitle:
-              '${a.completed ? '✓ Completada' : 'Pendiente'}${a.notes != null && a.notes!.isNotEmpty ? ' · ${a.notes}' : ''}',
+              '${a.completed ? '✓ ${_t('Completada', 'Completed')}' : _t('Pendiente', 'Pending')}${a.notes != null && a.notes!.isNotEmpty ? ' · ${a.notes}' : ''}',
           timestamp:
               DateTime(a.date.year, a.date.month, a.date.day, a.time.hour, a.time.minute),
           color: const Color(0xFF9C27B0),
@@ -2473,9 +2556,13 @@ class _RegistroPageState extends State<RegistroPage> {
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
     final date = DateTime(dt.year, dt.month, dt.day);
-    if (date == today) return 'Hoy';
-    if (date == yesterday) return 'Ayer';
-    return DateFormat("d 'de' MMMM yyyy", 'es').format(dt);
+    if (date == today) return _t('Hoy', 'Today');
+    if (date == yesterday) return _t('Ayer', 'Yesterday');
+    // Formato de fecha localizado
+    final locale = _langCode == 'es' ? 'es' : 'en';
+    return _langCode == 'es'
+        ? DateFormat("d 'de' MMMM yyyy", locale).format(dt)
+        : DateFormat('MMMM d, yyyy', locale).format(dt);
   }
 
   List<Widget> _buildGroupedList(List<_ActivityItem> items, bool isDark, AppState appState) {
@@ -2615,7 +2702,7 @@ class _RegistroPageState extends State<RegistroPage> {
                         const Spacer(),
                         if (_activities.isNotEmpty)
                           Text(
-                            '${filtered.length} registros',
+                            '${filtered.length} ${appState.tr('records_count')}',
                             style: TextStyle(
                               fontSize: 13,
                               color: isDark ? Colors.white38 : Colors.grey[500],
@@ -2634,7 +2721,7 @@ class _RegistroPageState extends State<RegistroPage> {
                     child: ListView(
                       scrollDirection: Axis.horizontal,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      children: _filters.map((f) {
+                      children: _filterDefs.map((f) {
                         final selected = _selectedFilter == f['key'];
                         return Padding(
                           padding: const EdgeInsets.only(right: 8),
@@ -2644,7 +2731,7 @@ class _RegistroPageState extends State<RegistroPage> {
                               size: 14,
                               color: selected ? Colors.white : (isDark ? Colors.white54 : Colors.grey[700]),
                             ),
-                            label: Text(f['label'] as String),
+                            label: Text(appState.tr(f['trKey'] as String)),
                             selected: selected,
                             onSelected: (_) => setState(() => _selectedFilter = f['key'] as String),
                             selectedColor: const Color(0xFF4F7A4A),
@@ -2689,6 +2776,7 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
   late TabController _tabController;
   List<HealthMeasurement> _measurements = [];
   String _gender = 'masculino';
+  late AppState _appState; // referencia para métodos que no reciben context
   // Resumen stats
   int _totalFeedings = 0;
   int _totalSleepSessions = 0;
@@ -2749,7 +2837,7 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    final appState = Provider.of<AppState>(context);
+    _appState = Provider.of<AppState>(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
@@ -2770,7 +2858,7 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
                 children: [
                   const SizedBox(height: 16),
                   Text(
-                    'Estadísticas',
+                    _appState.tr('statistics_title'),
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                           fontSize: 22,
                         ),
@@ -2781,9 +2869,9 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
                     labelColor: const Color(0xFF4F7A4A),
                     unselectedLabelColor: Colors.grey,
                     indicatorColor: const Color(0xFF4F7A4A),
-                    tabs: const [
-                      Tab(text: 'Resumen'),
-                      Tab(text: 'Crecimiento'),
+                    tabs: [
+                      Tab(text: _appState.tr('summary')),
+                      Tab(text: _appState.tr('growth')),
                     ],
                   ),
                   Expanded(
@@ -2815,12 +2903,12 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
             Icon(Icons.bar_chart, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             Text(
-              'Aún no hay datos',
+              _appState.tr('no_data_yet'),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.grey[600]),
             ),
             const SizedBox(height: 8),
             Text(
-              'Registra actividades para ver tus estadísticas aquí',
+              _appState.tr('no_data_desc'),
               style: TextStyle(fontSize: 14, color: Colors.grey[500]),
               textAlign: TextAlign.center,
             ),
@@ -2840,12 +2928,12 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
           // Alimentación
           _buildStatCard(
             icon: Icons.restaurant,
-            title: 'Alimentación',
+            title: _appState.tr('feeding_stat'),
             color: const Color(0xFFFF9800),
             bgColor: const Color(0xFFFFF8E7),
             stats: [
-              _StatItem('Total registros', '$_totalFeedings'),
-              _StatItem('Promedio/día', _avgFeedingsPerDay.toStringAsFixed(1)),
+              _StatItem(_appState.tr('total_records'), '$_totalFeedings'),
+              _StatItem(_appState.tr('avg_per_day'), _avgFeedingsPerDay.toStringAsFixed(1)),
             ],
             isDark: isDark,
           ),
@@ -2853,12 +2941,12 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
           // Sueño
           _buildStatCard(
             icon: Icons.bedtime,
-            title: 'Sueño',
+            title: _appState.tr('sleep_stat'),
             color: const Color(0xFF3F51B5),
             bgColor: const Color(0xFFE8EAF6),
             stats: [
-              _StatItem('Total sesiones', '$_totalSleepSessions'),
-              _StatItem('Promedio duración', '${avgSleepH}h ${avgSleepM}m'),
+              _StatItem(_appState.tr('total_sessions'), '$_totalSleepSessions'),
+              _StatItem(_appState.tr('avg_duration'), '${avgSleepH}h ${avgSleepM}m'),
             ],
             isDark: isDark,
           ),
@@ -2866,13 +2954,13 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
           // Salud
           _buildStatCard(
             icon: Icons.favorite,
-            title: 'Salud',
+            title: _appState.tr('health_stat'),
             color: const Color(0xFFE91E63),
             bgColor: const Color(0xFFFCE4EC),
             stats: [
-              _StatItem('Vacunas aplicadas', '$_totalVaccinesApplied'),
-              _StatItem('Citas médicas', '$_totalAppointments'),
-              _StatItem('Mediciones', '${_measurements.length}'),
+              _StatItem(_appState.tr('vaccines_applied'), '$_totalVaccinesApplied'),
+              _StatItem(_appState.tr('medical_appointments'), '$_totalAppointments'),
+              _StatItem(_appState.tr('measurements_count'), '${_measurements.length}'),
             ],
             isDark: isDark,
           ),
@@ -2966,12 +3054,12 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
             Icon(Icons.show_chart, size: 64, color: Colors.grey[400]),
             const SizedBox(height: 16),
             Text(
-              'No hay datos de crecimiento',
+              _appState.tr('no_growth_data'),
               style: TextStyle(color: Colors.grey[600], fontSize: 16),
             ),
             const SizedBox(height: 8),
             Text(
-              'Agrega mediciones en la sección Salud',
+              _appState.tr('no_growth_desc'),
               style: TextStyle(color: Colors.grey[500], fontSize: 14),
             ),
           ],
@@ -2988,7 +3076,7 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
           ElevatedButton.icon(
             onPressed: _exportGrowthPDF,
             icon: const Icon(Icons.picture_as_pdf),
-            label: const Text('Exportar informe PDF'),
+            label: Text(_appState.tr('export_pdf')),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4F7A4A),
               foregroundColor: Colors.white,
@@ -3029,9 +3117,9 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Peso vs Edad',
-            style: TextStyle(
+          Text(
+            _appState.tr('weight_vs_age'),
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: Color(0xFF4F7A4A),
@@ -3068,9 +3156,9 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Talla vs Edad',
-            style: TextStyle(
+          Text(
+            _appState.tr('height_vs_age'),
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: Color(0xFF4F7A4A),
@@ -3307,9 +3395,9 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
       spacing: 16,
       runSpacing: 8,
       children: [
-        _LegendItem(color: Colors.blue[700]!, label: 'Tu bebé'),
-        _LegendItem(color: Colors.green[400]!, label: 'P50 (OMS)'),
-        _LegendItem(color: Colors.red[300]!, label: 'P3/P97 (OMS)', dashed: true),
+        _LegendItem(color: Colors.blue[700]!, label: _appState.tr('your_baby')),
+        _LegendItem(color: Colors.green[400]!, label: _appState.tr('who_median')),
+        _LegendItem(color: Colors.red[300]!, label: _appState.tr('who_range'), dashed: true),
       ],
     );
   }
@@ -3331,9 +3419,9 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Historial de mediciones',
-            style: TextStyle(
+          Text(
+            _appState.tr('measurements_history'),
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: Color(0xFF4F7A4A),
@@ -3351,22 +3439,22 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
             children: [
               TableRow(
                 decoration: BoxDecoration(color: const Color(0xFF4F7A4A).withOpacity(0.1)),
-                children: const [
+                children: [
                   Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Text('Fecha', style: TextStyle(fontWeight: FontWeight.w600)),
+                    padding: const EdgeInsets.all(8),
+                    child: Text(_appState.tr('col_date'), style: const TextStyle(fontWeight: FontWeight.w600)),
                   ),
                   Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Text('Edad', style: TextStyle(fontWeight: FontWeight.w600)),
+                    padding: const EdgeInsets.all(8),
+                    child: Text(_appState.tr('col_age'), style: const TextStyle(fontWeight: FontWeight.w600)),
                   ),
                   Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Text('Peso', style: TextStyle(fontWeight: FontWeight.w600)),
+                    padding: const EdgeInsets.all(8),
+                    child: Text(_appState.tr('col_weight'), style: const TextStyle(fontWeight: FontWeight.w600)),
                   ),
                   Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Text('Talla', style: TextStyle(fontWeight: FontWeight.w600)),
+                    padding: const EdgeInsets.all(8),
+                    child: Text(_appState.tr('col_height'), style: const TextStyle(fontWeight: FontWeight.w600)),
                   ),
                 ],
               ),
@@ -4997,6 +5085,19 @@ class _FoodPageState extends State<FoodPage> {
     }
   }
 
+  /// Obtiene el nombre del usuario activo (desde Supabase auth o fallback).
+  static Future<String> _getUserDisplayName() async {
+    try {
+      final user = supabase.auth.currentUser;
+      if (user != null) {
+        final fullName = user.userMetadata?['full_name'] as String?;
+        if (fullName != null && fullName.trim().isNotEmpty) return fullName.trim();
+        if (user.email != null) return user.email!.split('@').first;
+      }
+    } catch (_) {}
+    return 'Usuario';
+  }
+
   Future<void> _addFeeding() async {
     if (_feedingType == null) return;
     
@@ -5016,6 +5117,9 @@ class _FoodPageState extends State<FoodPage> {
       return;
     }
 
+    // Obtener nombre del cuidador actual
+    final givenBy = await _getUserDisplayName();
+
     final now = DateTime.now();
     final feedingDateTime = DateTime(
       now.year,
@@ -5032,6 +5136,7 @@ class _FoodPageState extends State<FoodPage> {
           amount: amount,
           type: _feedingType!,
           notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+          givenBy: givenBy,
         ),
       );
       _entries.sort((a, b) => a.time.compareTo(b.time));
@@ -8169,7 +8274,12 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
 
   // TAB 1: Citas Médicas y Vacunas
   Widget _buildAppointmentsTab() {
-    final upcoming = _appointments.where((a) => !a.completed && a.date.isAfter(DateTime.now())).toList();
+    // Comparar solo la fecha (ignorar hora), para incluir citas de hoy
+    final _now = DateTime.now();
+    final _today = DateTime(_now.year, _now.month, _now.day);
+    final upcoming = _appointments
+        .where((a) => !a.completed && !a.date.isBefore(_today))
+        .toList();
     upcoming.sort((a, b) => a.date.compareTo(b.date));
 
     return SafeArea(
@@ -8388,20 +8498,31 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF355334),
+            ),
+            child: const Text('Cancelar', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
           ElevatedButton(
             onPressed: () async {
               if (type != null && selectedDate != null && selectedTime != null) {
-                // Programar notificación y obtener ID
-                final notificationId = await NotificationService.scheduleAppointmentNotification(
-                  type: type!,
-                  date: selectedDate!,
-                  time: selectedTime!,
-                  notes: notesController.text.trim().isEmpty
-                      ? null
-                      : notesController.text.trim(),
-                );
+                // Ganar KOA Puntos por agendar cita
+                KoaPointsService.addPoints(
+                    KoaPointsService.ptsAppointment, 'Cita médica agendada');
+                // Programar notificación (try-catch: si falla, igual se guarda la cita)
+                int notificationId = -1;
+                try {
+                  notificationId = await NotificationService.scheduleAppointmentNotification(
+                    type: type!,
+                    date: selectedDate!,
+                    time: selectedTime!,
+                    notes: notesController.text.trim().isEmpty
+                        ? null
+                        : notesController.text.trim(),
+                  );
+                } catch (e) {
+                  debugPrint('⚠️ Error programando notificación de cita: $e');
+                }
 
                 setState(() {
                   _appointments.add(MedicalAppointment(
@@ -8411,7 +8532,7 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                     notes: notesController.text.trim().isEmpty
                         ? null
                         : notesController.text.trim(),
-                    notificationId: notificationId,
+                    notificationId: notificationId >= 0 ? notificationId : null,
                   ));
                 });
 
@@ -8492,7 +8613,21 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
     );
   }
 
+  /// Obtiene el nombre del usuario activo para registrar quien administra la dosis.
+  Future<String> _getCurrentUserName() async {
+    try {
+      final user = supabase.auth.currentUser;
+      if (user != null) {
+        final fullName = user.userMetadata?['full_name'] as String?;
+        if (fullName != null && fullName.trim().isNotEmpty) return fullName.trim();
+        if (user.email != null) return user.email!.split('@').first;
+      }
+    } catch (_) {}
+    return 'Usuario';
+  }
+
   Widget _buildMedicineCard(MedicineReminder med) {
+    final lastDose = med.lastDose;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -8534,18 +8669,24 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                       med.dosage,
                       style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                     ),
+                    // Última dosis confirmada
+                    if (lastDose != null)
+                      Text(
+                        '✅ Última dosis: ${lastDose.timestamp.day}/${lastDose.timestamp.month} '
+                        '${lastDose.timestamp.hour.toString().padLeft(2,'0')}:${lastDose.timestamp.minute.toString().padLeft(2,'0')} '
+                        '— 👤 ${lastDose.givenBy}',
+                        style: TextStyle(fontSize: 11, color: Colors.green[700]),
+                      ),
                   ],
                 ),
               ),
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.red),
                 onPressed: () async {
-                  // Cancelar notificaciones
                   if (med.notificationIds.isNotEmpty) {
                     await NotificationService.cancelNotifications(med.notificationIds);
                   }
                   setState(() => _medicines.remove(med));
-                  // Guardar cambios
                   await StorageService.saveMedicines(_medicines);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Medicamento eliminado')),
@@ -8602,6 +8743,48 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
               ],
             ),
           ),
+          const SizedBox(height: 10),
+          // Botón Confirmar toma
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                final givenBy = await _getCurrentUserName();
+                final confirmation = MedicineDoseConfirmation(
+                  givenBy: givenBy,
+                  timestamp: DateTime.now(),
+                );
+                setState(() => med.doseConfirmations.add(confirmation));
+                await StorageService.saveMedicines(_medicines);
+                // Ganar KOA Puntos por confirmar toma
+                KoaPointsService.addPoints(1, 'Toma de ${med.name} confirmada');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        '✅ Toma confirmada por $givenBy ⭐ +1 KOA Punto',
+                      ),
+                      backgroundColor: const Color(0xFF4F7A4A),
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.check_circle_outline, size: 18),
+              label: const Text(
+                'Confirmar toma',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4F7A4A),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -8644,7 +8827,7 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                   decoration: const InputDecoration(labelText: 'Frecuencia diaria'),
                   items: [1, 2, 3, 4]
                       .map((f) => DropdownMenuItem(
-                          value: f, child: Text('$f vez${f > 1 ? "es" : ""} al día')))
+                          value: f, child: Text('$f ${f > 1 ? "veces" : "vez"} al día')))
                       .toList(),
                   onChanged: (val) {
                     if (val != null) {
@@ -8697,18 +8880,26 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF355334),
+            ),
+            child: const Text('Cancelar', style: TextStyle(fontWeight: FontWeight.w600)),
           ),
           ElevatedButton(
             onPressed: () async {
               if (nameController.text.trim().isNotEmpty &&
                   dosageController.text.trim().isNotEmpty) {
-                // Programar notificaciones recurrentes
-                final notificationIds = await NotificationService.scheduleMedicineNotifications(
-                  medicineName: nameController.text.trim(),
-                  dosage: dosageController.text.trim(),
-                  times: times,
-                );
+                // Programar notificaciones (try-catch: si falla, igual se guarda el medicamento)
+                List<int> notificationIds = [];
+                try {
+                  notificationIds = await NotificationService.scheduleMedicineNotifications(
+                    medicineName: nameController.text.trim(),
+                    dosage: dosageController.text.trim(),
+                    times: times,
+                  );
+                } catch (e) {
+                  debugPrint('⚠️ Error programando notificaciones de medicamento: $e');
+                }
 
                 setState(() {
                   _medicines.add(MedicineReminder(
@@ -8723,6 +8914,9 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                   ));
                 });
 
+                // Ganar KOA Puntos por agregar medicamento
+                KoaPointsService.addPoints(
+                    KoaPointsService.ptsMeasurement, 'Medicamento registrado');
                 // Guardar en almacenamiento persistente
                 await StorageService.saveMedicines(_medicines);
                 debugPrint('✅ Medicamento guardado con ${notificationIds.length} notificaciones');
@@ -9192,15 +9386,18 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                   lastDate: DateTime.now(),
                   helpText: 'Fecha de aplicación',
                 );
-                if (date != null) {
-                  setState(() {
-                    vaccine.appliedDate = date;
-                  });
-                  await StorageService.saveVaccines(_vaccines);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Vacuna marcada como aplicada')),
-                  );
-                }
+                      if (date != null) {
+                          setState(() {
+                            vaccine.appliedDate = date;
+                          });
+                          await StorageService.saveVaccines(_vaccines);
+                          // Ganar KOA Puntos por vacuna aplicada
+                          KoaPointsService.addPoints(
+                              KoaPointsService.ptsVaccine, 'Vacuna aplicada: ${vaccine.name}');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Vacuna marcada ✅ +2 KOA Puntos ⭐')),
+                          );
+                        }
               } else {
                 setState(() {
                   vaccine.appliedDate = null;
@@ -9232,9 +9429,59 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
                 if (vaccine.appliedDate != null)
                   Text(
                     'Aplicada: ${vaccine.appliedDate!.day}/${vaccine.appliedDate!.month}/${vaccine.appliedDate!.year}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                // Refuerzos registrados
+                if (vaccine.boosterDates.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  ...vaccine.boosterDates.asMap().entries.map(
+                    (e) => Text(
+                      'Refuerzo ${e.key + 1}: ${e.value.day}/${e.value.month}/${e.value.year}',
+                      style: TextStyle(fontSize: 12, color: Colors.blue[700], fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+                // Botón agregar refuerzo (solo si ya fue aplicada)
+                if (vaccine.isApplied)
+                  GestureDetector(
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now(),
+                        helpText: 'Fecha del refuerzo',
+                      );
+                      if (date != null && mounted) {
+                        setState(() => vaccine.boosterDates.add(date));
+                        await StorageService.saveVaccines(_vaccines);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Refuerzo registrado ✅'),
+                              backgroundColor: Color(0xFF4F7A4A),
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.add_circle_outline, size: 13, color: Colors.blue[600]),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Agregar refuerzo',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue[600],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
               ],
@@ -9292,7 +9539,7 @@ class _PediatricianCallPageState extends State<PediatricianCallPage> {
     if (phone != null && phone.isNotEmpty) {
       setState(() {
         _savedPhone = phone;
-        _phoneController.text = phone;
+        // No se pre-llena el campo: el número guardado se muestra en el indicador
       });
     }
   }
@@ -9302,11 +9549,14 @@ class _PediatricianCallPageState extends State<PediatricianCallPage> {
     if (phone.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('pediatrician_phone', phone);
-    setState(() => _savedPhone = phone);
+    setState(() {
+      _savedPhone = phone;
+      _phoneController.clear(); // Limpieza automática tras guardar
+    });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Número guardado'),
+          content: Text('Número guardado ✅'),
           backgroundColor: Color(0xFF4F7A4A),
         ),
       );
@@ -9467,6 +9717,41 @@ class _PediatricianCallPageState extends State<PediatricianCallPage> {
                         ),
                       ),
                     ),
+                    // Indicador de número guardado
+                    if (_savedPhone != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFB6D7A8)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Color(0xFF4F7A4A), size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Guardado: $_savedPhone',
+                                style: const TextStyle(
+                                  color: Color(0xFF355334),
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            // Botón para editar
+                            GestureDetector(
+                              onTap: () => setState(() {
+                                _phoneController.text = _savedPhone!;
+                              }),
+                              child: const Icon(Icons.edit, color: Color(0xFF4F7A4A), size: 16),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -12459,7 +12744,7 @@ class _InfantRegistrationPageState extends State<InfantRegistrationPage> {
                             ),
                           ),
                           onPressed: _submit,
-                          child: const Text(
+                        child: const Text(
                             'Guardar perfil',
                             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                           ),
@@ -12471,6 +12756,112 @@ class _InfantRegistrationPageState extends State<InfantRegistrationPage> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// KOA PUNTOS BANNER - Widget de inicio rápido a la Tienda KOA
+// ============================================================================
+class _KoaPointsBanner extends StatefulWidget {
+  @override
+  State<_KoaPointsBanner> createState() => _KoaPointsBannerState();
+}
+
+class _KoaPointsBannerState extends State<_KoaPointsBanner> {
+  int _balance = 0;
+  bool _bonusAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final b = await KoaPointsService.getBalance();
+    final bonus = await KoaPointsService.isDailyBonusAvailable();
+    if (mounted) setState(() { _balance = b; _bonusAvailable = bonus; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: () async {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const TiendaKoaPage()),
+        );
+        _load(); // recargar al volver
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF4F7A4A), Color(0xFF7AAD6A)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4F7A4A).withOpacity(0.25),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Text('⭐', style: TextStyle(fontSize: 28)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'KOA Puntos',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                  Text(
+                    _balance == 0
+                        ? 'Gana puntos usando KOA'
+                        : '$_balance puntos → MXN \$$_balance de descuento',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_bonusAvailable)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.amber[600],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Bono\ndisponible',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    height: 1.2,
+                  ),
+                ),
+              )
+            else
+              const Icon(Icons.chevron_right, color: Colors.white70),
+          ],
         ),
       ),
     );

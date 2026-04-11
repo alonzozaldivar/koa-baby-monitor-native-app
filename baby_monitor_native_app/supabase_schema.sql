@@ -434,6 +434,100 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================================
+-- TABLA: family_links (vínculo entre cuenta principal y cuidadores)
+-- ============================================================================
+CREATE TABLE public.family_links (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  owner_user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  caregiver_user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  caregiver_name TEXT,
+  role TEXT DEFAULT 'Cuidador',
+  linked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(owner_user_id, caregiver_user_id)
+);
+
+ALTER TABLE public.family_links ENABLE ROW LEVEL SECURITY;
+
+-- Dueño y cuidador pueden ver sus vínculos
+CREATE POLICY "Family members can view links" ON public.family_links
+  FOR SELECT USING (auth.uid() = owner_user_id OR auth.uid() = caregiver_user_id);
+-- Solo el dueño puede gestionar los vínculos
+CREATE POLICY "Owner manages family links" ON public.family_links
+  FOR INSERT WITH CHECK (auth.uid() = owner_user_id);
+CREATE POLICY "Owner deletes family links" ON public.family_links
+  FOR DELETE USING (auth.uid() = owner_user_id);
+
+CREATE INDEX idx_family_links_owner    ON public.family_links(owner_user_id);
+CREATE INDEX idx_family_links_caregiver ON public.family_links(caregiver_user_id);
+
+-- ============================================================================
+-- FUNCIÓN: is_family_member(owner_id)
+-- Verifica si el usuario actual es cuidador del dueño indicado.
+-- Usada en las políticas RLS de todas las tablas de datos.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.is_family_member(owner_id UUID)
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.family_links
+    WHERE caregiver_user_id = auth.uid()
+      AND owner_user_id = owner_id
+  );
+$$ LANGUAGE SQL SECURITY DEFINER STABLE;
+
+-- ============================================================================
+-- ACTUALIZAR RLS: permitir acceso de cuidadores a datos del dueño
+-- ============================================================================
+
+-- baby_profiles: cuidadores pueden ver y modificar
+DROP POLICY IF EXISTS "Users can view own babies" ON public.baby_profiles;
+CREATE POLICY "Users and caregivers can view babies" ON public.baby_profiles
+  FOR SELECT USING (auth.uid() = user_id OR is_family_member(user_id));
+DROP POLICY IF EXISTS "Users can insert own babies" ON public.baby_profiles;
+CREATE POLICY "Users and caregivers can insert babies" ON public.baby_profiles
+  FOR INSERT WITH CHECK (auth.uid() = user_id OR is_family_member(user_id));
+DROP POLICY IF EXISTS "Users can update own babies" ON public.baby_profiles;
+CREATE POLICY "Users and caregivers can update babies" ON public.baby_profiles
+  FOR UPDATE USING (auth.uid() = user_id OR is_family_member(user_id));
+
+-- feeding_entries: cuidadores pueden ver e insertar
+DROP POLICY IF EXISTS "Users can view own feeding entries" ON public.feeding_entries;
+CREATE POLICY "Users and caregivers view feedings" ON public.feeding_entries
+  FOR SELECT USING (auth.uid() = user_id OR is_family_member(user_id));
+DROP POLICY IF EXISTS "Users can insert own feeding entries" ON public.feeding_entries;
+CREATE POLICY "Users and caregivers insert feedings" ON public.feeding_entries
+  FOR INSERT WITH CHECK (auth.uid() = user_id OR is_family_member(user_id));
+DROP POLICY IF EXISTS "Users can delete own feeding entries" ON public.feeding_entries;
+CREATE POLICY "Users and caregivers delete feedings" ON public.feeding_entries
+  FOR DELETE USING (auth.uid() = user_id OR is_family_member(user_id));
+
+-- sleep_sessions
+DROP POLICY IF EXISTS "Users can view own sleep sessions" ON public.sleep_sessions;
+CREATE POLICY "Users and caregivers view sleep" ON public.sleep_sessions
+  FOR SELECT USING (auth.uid() = user_id OR is_family_member(user_id));
+DROP POLICY IF EXISTS "Users can insert own sleep sessions" ON public.sleep_sessions;
+CREATE POLICY "Users and caregivers insert sleep" ON public.sleep_sessions
+  FOR INSERT WITH CHECK (auth.uid() = user_id OR is_family_member(user_id));
+
+-- medical_appointments
+DROP POLICY IF EXISTS "Users can view own appointments" ON public.medical_appointments;
+CREATE POLICY "Users and caregivers view appointments" ON public.medical_appointments
+  FOR SELECT USING (auth.uid() = user_id OR is_family_member(user_id));
+DROP POLICY IF EXISTS "Users can insert own appointments" ON public.medical_appointments;
+CREATE POLICY "Users and caregivers insert appointments" ON public.medical_appointments
+  FOR INSERT WITH CHECK (auth.uid() = user_id OR is_family_member(user_id));
+
+-- medicines
+DROP POLICY IF EXISTS "Users can view own medicines" ON public.medicines;
+CREATE POLICY "Users and caregivers view medicines" ON public.medicines
+  FOR SELECT USING (auth.uid() = user_id OR is_family_member(user_id));
+DROP POLICY IF EXISTS "Users can insert own medicines" ON public.medicines;
+CREATE POLICY "Users and caregivers insert medicines" ON public.medicines
+  FOR INSERT WITH CHECK (auth.uid() = user_id OR is_family_member(user_id));
+DROP POLICY IF EXISTS "Users can update own medicines" ON public.medicines;
+CREATE POLICY "Users and caregivers update medicines" ON public.medicines
+  FOR UPDATE USING (auth.uid() = user_id OR is_family_member(user_id));
+
+-- ============================================================================
 -- GRANTS (Permisos)
 -- ============================================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;

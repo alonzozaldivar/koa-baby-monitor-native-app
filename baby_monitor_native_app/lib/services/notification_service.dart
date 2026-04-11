@@ -112,7 +112,7 @@ class NotificationService {
       '🏥 Recordatorio: $type',
       notes != null && notes.isNotEmpty
           ? notes
-          : 'Tienes una cita en 1 hora (${time.format(NavigatorState().context)})',
+          : 'Tienes una cita médica en 1 hora — ${type}',
       tz.TZDateTime.from(notificationTime, tz.local),
       const NotificationDetails(
         android: AndroidNotificationDetails(
@@ -194,7 +194,7 @@ class NotificationService {
       );
 
       notificationIds.add(id);
-      debugPrint('✅ Recordatorio medicamento programado: ID=$id, hora=${time.format(NavigatorState().context)}');
+      debugPrint('✅ Recordatorio medicamento programado: ID=$id, hora=${time.hour}:${time.minute.toString().padLeft(2, '0')}');
     }
 
     return notificationIds;
