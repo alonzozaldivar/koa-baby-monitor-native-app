@@ -1,0 +1,614 @@
+================================================================================
+  KOA BABY MONITOR — MANUAL DE USUARIO
+================================================================================
+  Versión  : 1.0
+  Fecha    : Abril 2026
+  App      : KOA Baby Monitor
+================================================================================
+
+
+================================================================================
+BIENVENIDO A KOA
+================================================================================
+
+KOA es tu compañero digital para el cuidado de tu bebé. Con KOA puedes:
+
+  ★  Registrar tomas de alimentación, sueño, vacunas y citas médicas
+  ★  Monitorear a tu bebé por cámara desde cualquier lugar del mundo
+  ★  Llevar el diario de recuerdos y hitos importantes
+  ★  Agregar cuidadores que también puedan registrar actividades
+  ★  Ganar KOA Puntos y canjearlos por descuentos en tu suscripción
+  ★  Ver estadísticas y gráficas de crecimiento comparadas con estándares OMS
+
+
+================================================================================
+SECCIÓN 1 — INSTALACIÓN
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 Android
+--------------------------------------------------------------------------------
+  Dispositivos modernos (Honor, Samsung Galaxy S, Xiaomi, etc.):
+    → Instalar: KOA-v1.0-android-arm64.apk
+
+  Dispositivos antiguos / Galaxy Tab A 2017:
+    → Instalar: KOA-v1.0-android-arm32.apk
+
+  Pasos de instalación:
+    1. Descarga el APK a tu teléfono (por WhatsApp, Drive o cable)
+    2. Ve a Ajustes → Seguridad → Activa "Fuentes desconocidas"
+       (En Android 8+: Ajustes → Aplicaciones → [tu navegador/gestor] → Instalar apps)
+    3. Abre el APK desde el Administrador de archivos
+    4. Toca "Instalar"
+
+--------------------------------------------------------------------------------
+1.2 iOS
+--------------------------------------------------------------------------------
+  Requiere Mac con Xcode para compilar y distribuir via TestFlight.
+  Contacta al desarrollador para obtener acceso de prueba.
+
+--------------------------------------------------------------------------------
+1.3 Requisitos mínimos
+--------------------------------------------------------------------------------
+  Android  : versión 6.0 (API 23) o superior
+  iOS      : 15.5 o superior
+  Espacio  : ~150 MB de almacenamiento libre
+  Internet : Requerido para registro, login y cámara remota
+             (las funciones básicas funcionan sin conexión)
+
+
+================================================================================
+SECCIÓN 2 — PRIMEROS PASOS
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 Video de introducción
+--------------------------------------------------------------------------------
+  Al abrir KOA por primera vez verás un video de bienvenida.
+  Puedes tocarlo o esperar a que termine para continuar.
+  NOTA: Si el botón "Saltar" aparece en la esquina superior derecha, tócalo
+  para ir directamente a la pantalla de inicio.
+
+--------------------------------------------------------------------------------
+2.2 Crear tu cuenta
+--------------------------------------------------------------------------------
+  1. En la pantalla de bienvenida toca "Crear cuenta"
+  2. Ingresa:
+     - Nombre completo
+     - Email (será tu usuario)
+     - Contraseña (mínimo 6 caracteres)
+     - Confirma la contraseña
+  3. Toca "Crear cuenta"
+  4. Al registrarte te preguntará si deseas agregar un cuidador (opcional)
+
+--------------------------------------------------------------------------------
+2.3 Iniciar sesión (cuenta existente)
+--------------------------------------------------------------------------------
+  1. Toca "Iniciar sesión"
+  2. Ingresa tu email y contraseña
+  3. Toca "Iniciar sesión"
+
+--------------------------------------------------------------------------------
+2.4 ¿Olvidaste tu contraseña?
+--------------------------------------------------------------------------------
+  1. En la pantalla de login toca "¿Olvidaste tu contraseña?"
+  2. Ingresa tu email (se pre-llena si ya lo habías escrito)
+  3. Toca "Enviar enlace"
+  4. Recibirás un correo con un enlace para crear una nueva contraseña
+  5. Abre el correo y sigue el enlace
+
+--------------------------------------------------------------------------------
+2.5 Registrar el perfil de tu bebé
+--------------------------------------------------------------------------------
+  Después del login, si aún no tienes perfil:
+  1. Ingresa el nombre del bebé
+  2. Selecciona la fecha de nacimiento (toca el calendario)
+  3. Elige el género
+  4. Opcionalmente agrega una foto
+  5. Toca "Guardar perfil"
+
+  Si tienes gemelos o trillizos, selecciona la cantidad antes de guardar.
+
+
+================================================================================
+SECCIÓN 3 — PANTALLA DE INICIO
+================================================================================
+
+  La pantalla de inicio muestra:
+
+  ┌─────────────────────────────────┐
+  │  [Foto bebé]  Nombre del bebé   │
+  │                X meses, Y días  │
+  ├─────────────────────────────────┤
+  │  💡 Tip del Koala               │
+  ├─────────────────────────────────┤
+  │  ⭐ KOA Puntos → Tienda KOA     │
+  ├─────────────────────────────────┤
+  │  👥 Cuidadores (Premium)        │
+  ├─────────────────────────────────┤
+  │  Apartados principales:         │
+  │  🍼 Comida   📷 Cámara         │
+  │  ❤️ Salud   📔 Diario          │
+  │  😴 Sueño   📞 Pediatra        │
+  └─────────────────────────────────┘
+
+  Barra inferior: Inicio | Registro | Estadísticas | Ajustes
+
+
+================================================================================
+SECCIÓN 4 — MÓDULO DE ALIMENTACIÓN
+================================================================================
+
+  Acceso: Inicio → Comida
+
+--------------------------------------------------------------------------------
+4.1 Registrar una toma
+--------------------------------------------------------------------------------
+  1. La app detecta automáticamente la etapa de tu bebé según su edad:
+     - Lactancia exclusiva (0-6 meses)
+     - Alimentación complementaria (6-12 meses)
+     - Transición a sólidos (12-24 meses)
+     - Alimentación familiar (24+ meses)
+
+  2. Selecciona el tipo de toma (Pecho izq, Biberón, Papilla, etc.)
+  3. Ingresa la cantidad en ml
+  4. Ajusta la hora si es necesario (toca el reloj)
+  5. Agrega notas opcionales
+  6. Toca "Registrar toma"
+
+  Resultado: Se guarda la toma con tu nombre como "Dado por: [tu nombre]"
+  La próxima toma sugerida se calcula automáticamente.
+
+--------------------------------------------------------------------------------
+4.2 Recordatorio de próxima toma
+--------------------------------------------------------------------------------
+  - Automático: se programa una notificación para la próxima toma calculada
+  - Manual: selecciona la hora deseada y toca "Programar recordatorio"
+
+--------------------------------------------------------------------------------
+4.3 Historial de tomas
+--------------------------------------------------------------------------------
+  El historial muestra todas las tomas del día con hora y cantidad.
+  Puedes ver tomas anteriores desplazando hacia abajo.
+
+
+================================================================================
+SECCIÓN 5 — MÓDULO DE SUEÑO
+================================================================================
+
+  Acceso: Inicio → Sueño
+
+  1. Toca "Iniciar sesión de sueño" cuando el bebé empiece a dormir
+  2. Toca "Finalizar sesión de sueño" cuando despierte
+  3. El historial muestra duración de cada sesión (ej: 2h 30m)
+  4. Las sesiones en curso se muestran con un indicador animado
+
+
+================================================================================
+SECCIÓN 6 — MÓDULO DE SALUD
+================================================================================
+
+  Acceso: Inicio → Salud (4 pestañas)
+
+--------------------------------------------------------------------------------
+6.1 Pestaña Citas Médicas
+--------------------------------------------------------------------------------
+  Agregar cita:
+    1. Toca "Nueva Cita/Vacuna"
+    2. Selecciona el tipo (Vacuna o Cita médica)
+    3. Elige fecha y hora
+    4. Agrega notas opcionales
+    5. Toca "Guardar"
+    → Se programa automáticamente una notificación 1 hora antes
+
+  Las citas aparecen en "Próximas citas" ordenadas por fecha.
+  Toca el ✓ para marcar una cita como completada.
+
+  NOTA: Las citas del día actual SÍ aparecen en la lista (incluso si
+  ya pasaron en el horario, se muestran hasta que las marques como completadas).
+
+--------------------------------------------------------------------------------
+6.2 Pestaña Medicamentos
+--------------------------------------------------------------------------------
+  Agregar medicamento:
+    1. Toca "Agregar Medicamento"
+    2. Ingresa nombre, dosis y frecuencia diaria (1-4 veces)
+    3. Configura los horarios de cada toma
+    4. Toca "Guardar"
+    → Se programan notificaciones diarias para cada horario
+
+  Confirmar una toma:
+    - En la tarjeta del medicamento toca "Confirmar toma"
+    - Se registra quién lo administró y la hora exacta
+    - Aparece: "✅ Última dosis: DD/MM HH:MM — 👤 [nombre]"
+
+  Bono: Confirmar toma da +1 KOA Punto.
+
+--------------------------------------------------------------------------------
+6.3 Pestaña Crecimiento
+--------------------------------------------------------------------------------
+  Agregar medición:
+    1. Toca "Nueva Medición"
+    2. Ingresa peso (kg) y talla (cm)
+    3. El sistema calcula la edad en meses automáticamente
+    4. Toca "Guardar"
+
+  Las mediciones se comparan con los estándares de la OMS.
+  Toca "Ver Gráficas de Crecimiento" para ir a Estadísticas.
+
+--------------------------------------------------------------------------------
+6.4 Pestaña Vacunas
+--------------------------------------------------------------------------------
+  Muestra el esquema completo de vacunación recomendado agrupado por edad.
+
+  Marcar vacuna como aplicada:
+    1. Toca el checkbox de la vacuna
+    2. Selecciona la fecha de aplicación
+    3. Se guarda con el símbolo ✓ en verde
+
+  Agregar refuerzo (dosis adicional):
+    1. Cuando una vacuna ya está aplicada, aparece "Agregar refuerzo"
+    2. Toca el link azul → selecciona la fecha
+    3. Se muestra como "Refuerzo 1: DD/MM/AAAA"
+    Útil para campañas de Influenza, Sarampión, etc.
+
+
+================================================================================
+SECCIÓN 7 — DIARIO DE RECUERDOS
+================================================================================
+
+  Acceso: Inicio → Diario
+
+  Agregar hito:
+    1. Toca "Agregar hito"
+    2. Selecciona un hito sugerido (Primera sonrisa, Primeros pasos, etc.)
+       o crea uno personalizado
+    3. Agrega descripción y fecha
+    4. Opcionalmente toma o selecciona una foto
+    5. Toca "Guardar"
+
+  Los hitos se muestran cronológicamente con foto y descripción.
+  Puedes exportar el diario como álbum PDF.
+
+
+================================================================================
+SECCIÓN 8 — MONITOR DE CÁMARA (Premium)
+================================================================================
+
+  Acceso: Inicio → Monitor cámara
+
+  Para usar el monitor necesitas:
+    1. Una cámara IP compatible (TV-628 recomendada)
+    2. El KOA Home Bridge corriendo en la PC de tu hogar
+
+  Configurar la cámara:
+    1. En la app, toca "Agregar cámara"
+    2. Ingresa nombre, IP de la cámara, puertos y credenciales
+    3. En la PC, configura home_bridge/config.json con los mismos datos
+    4. Ejecuta bridge.py en la PC
+
+  Ver la cámara:
+    - El stream aparece automáticamente cuando el bridge está activo
+    - Frecuencia: ~2 fotogramas por segundo
+    - Si el corazón (heartbeat) tiene menos de 30 segundos → cámara activa
+
+  Control PTZ (Pan-Tilt-Zoom):
+    - Usa los botones de flecha para mover la cámara
+    - Usa + / - para zoom
+    - Los comandos se ejecutan desde cualquier parte del mundo
+
+--------------------------------------------------------------------------------
+8.1 Configurar Home Bridge (PC)
+--------------------------------------------------------------------------------
+  Archivo: home_bridge/config.json
+  {
+    "supabase_url": "https://tu-proyecto.supabase.co",
+    "supabase_anon_key": "eyJ...",
+    "user_email": "tu@email.com",
+    "user_password": "tu_contrasena",
+    "cameras": [{
+      "id": "cam_1",
+      "name": "Habitación Bebé",
+      "host": "192.168.1.XX",  ← IP de tu cámara en la red local
+      "rtsp_port": 554,
+      "rtsp_path": "/onvif1",
+      "username": "admin",
+      "password": "",
+      "onvif_port": 8899,
+      "fps": 2,
+      "rtsp_transport": "tcp"
+    }]
+  }
+
+  Ejecutar: doble clic en start.bat (o python bridge.py en la consola)
+
+  TIP: Si la cámara cambia de IP (DHCP), ve al router → Reservas DHCP →
+  asigna siempre la misma IP a la MAC de la cámara para evitar problemas.
+
+
+================================================================================
+SECCIÓN 9 — PEDIATRA
+================================================================================
+
+  Acceso: Inicio → Pediatra
+
+  1. Ingresa el número de teléfono de tu pediatra
+  2. Toca "Guardar número"
+     → El campo se limpia automáticamente tras guardar
+     → Aparece un indicador verde "Guardado: +52 55..."
+  3. Para llamar: toca "Llamar al Pediatra" (botón rojo)
+  4. Para emergencias: toca "Emergencias 911"
+     → Pedirá confirmación antes de marcar
+
+  Para editar el número guardado: toca el ícono de lápiz en el indicador verde.
+
+
+================================================================================
+SECCIÓN 10 — KOA PUNTOS Y TIENDA
+================================================================================
+
+  Acceso: Pantalla de inicio → Banner verde ⭐ "KOA Puntos"
+
+  1 KOA Punto = MXN $1 de descuento
+
+--------------------------------------------------------------------------------
+10.1 Cómo ganar puntos
+--------------------------------------------------------------------------------
+  ★ Registrar una toma         → +1 punto
+  ★ Completar sesión de sueño  → +1 punto
+  ★ Marcar vacuna aplicada     → +2 puntos
+  ★ Agendar cita médica        → +2 puntos
+  ★ Confirmar toma medicamento → +1 punto
+  ★ Registrar medicamento      → +2 puntos
+  ★ Agregar hito al diario     → +3 puntos
+  ★ Crear perfil de bebé       → +5 puntos
+  ★ Bono diario (cada día)     → +1 punto
+
+  El bono diario aparece en el banner principal. Toca el botón amarillo
+  "Bono disponible" para reclamarlo.
+
+--------------------------------------------------------------------------------
+10.2 Canjear puntos (Tienda)
+--------------------------------------------------------------------------------
+  En la Tienda KOA (pestaña "Tienda"):
+
+  PREMIO                          COSTO
+  ──────────────────────────────────────
+  MXN $25 de descuento            25 pts
+  MXN $50 de descuento            50 pts
+  1 mes Premium GRATIS           199 pts
+  10% descuento Plan Anual       100 pts
+
+  Para canjear:
+    1. Toca "Canjear" en el premio deseado
+    2. Confirma el canje
+    3. El descuento o Premium se aplica automáticamente
+
+--------------------------------------------------------------------------------
+10.3 Historial de puntos
+--------------------------------------------------------------------------------
+  En la pestaña "Historial" puedes ver todos tus movimientos:
+  ⭐ Puntos ganados (en verde)
+  🎁 Puntos canjeados (en naranja)
+
+
+================================================================================
+SECCIÓN 11 — CUIDADORES (Premium)
+================================================================================
+
+  Los cuidadores son personas (mamá, papá, abuelo/a, niñera) que pueden
+  acceder a la app con su propia cuenta y registrar actividades del bebé.
+  Su nombre aparece automáticamente en cada registro que hacen.
+
+--------------------------------------------------------------------------------
+11.1 Agregar un cuidador (al registrarte)
+--------------------------------------------------------------------------------
+  Después de crear tu cuenta aparece la pregunta "¿Agregar cuidador?"
+  Si toca "Agregar ahora":
+    1. Ingresa nombre completo del cuidador
+    2. Ingresa su email (será su usuario)
+    3. Crea una contraseña para él/ella (mínimo 6 caracteres)
+    4. Selecciona el rol (Mamá, Papá, Abuelo/a, Niñera, Otro)
+    5. Toca "Crear cuenta"
+    6. Se puede agregar otro cuidador o continuar
+
+--------------------------------------------------------------------------------
+11.2 Agregar cuidadores después (desde Ajustes)
+--------------------------------------------------------------------------------
+  Ajustes → Cuidadores → Agregar
+
+--------------------------------------------------------------------------------
+11.3 Cómo usa la app el cuidador
+--------------------------------------------------------------------------------
+  1. El cuidador descarga KOA en su propio dispositivo
+  2. Inicia sesión con el email y contraseña creados
+  3. La app detecta automáticamente que es cuidador
+  4. Ve los mismos datos del bebé que el usuario principal
+  5. Cuando registra una toma o confirma medicamento, aparece su nombre
+
+
+================================================================================
+SECCIÓN 12 — ESTADÍSTICAS (Premium)
+================================================================================
+
+  Acceso: Barra inferior → Estadísticas
+
+  Pestaña Resumen:
+    - Total de tomas de alimentación
+    - Promedio de tomas por día
+    - Total de sesiones de sueño
+    - Promedio de duración de sueño
+    - Vacunas aplicadas
+    - Citas médicas totales
+
+  Pestaña Crecimiento:
+    - Gráfica Peso vs Edad (con curvas OMS)
+    - Gráfica Talla vs Edad (con curvas OMS)
+    - Historial de mediciones en tabla
+    - Exportar como PDF
+
+
+================================================================================
+SECCIÓN 13 — REGISTRO DE ACTIVIDADES (Premium)
+================================================================================
+
+  Acceso: Barra inferior → Registro
+
+  Muestra todas las actividades del bebé ordenadas por fecha con filtros:
+  Todos | Comida | Sueño | Salud | Vacunas | Citas
+
+  En cada registro de alimentación aparece:
+  "250 ml — 👤 [nombre del cuidador que lo registró]"
+
+
+================================================================================
+SECCIÓN 14 — AJUSTES
+================================================================================
+
+  Acceso: Barra inferior → Ajustes
+
+--------------------------------------------------------------------------------
+14.1 Apariencia
+--------------------------------------------------------------------------------
+  - Modo oscuro: activa/desactiva el tema oscuro
+  - Idioma: Español / Inglés (el cambio se aplica de inmediato a toda la app)
+
+--------------------------------------------------------------------------------
+14.2 Premium
+--------------------------------------------------------------------------------
+  - Ver los planes disponibles
+  - Activar Premium (MXN $199/mes o $1,499/año)
+  - Los KOA Puntos permiten canjear 1 mes gratis con 199 puntos
+
+--------------------------------------------------------------------------------
+14.3 Cuenta
+--------------------------------------------------------------------------------
+  - Cerrar sesión
+  - Cambiar de cuenta (cierra sesión actual)
+  - Eliminar cuenta (acción irreversible)
+    ADVERTENCIA: Eliminar la cuenta borra TODOS los datos del bebé permanentemente.
+    Escribe ELIMINAR para confirmar.
+
+--------------------------------------------------------------------------------
+14.4 Perfil del bebé
+--------------------------------------------------------------------------------
+  Desde el encabezado del perfil puedes:
+  - Cambiar la foto del bebé
+  - Editar el nombre
+  - Editar la fecha de nacimiento
+  - Editar el género
+  - Eliminar el perfil
+
+
+================================================================================
+SECCIÓN 15 — NOTIFICACIONES
+================================================================================
+
+  KOA envía notificaciones locales (no requieren internet):
+
+  TIPO                              CUÁNDO
+  ─────────────────────────────────────────────────────
+  🏥 Recordatorio de cita          1 hora antes de la cita
+  💊 Hora de medicamento           A la hora configurada (diariamente)
+  🍼 Próxima toma                  A la hora calculada según intervalo
+  🍼 Recordatorio personalizado    A la hora que tú elijas
+
+  Para que las notificaciones funcionen:
+    Android: La app pedirá permiso de notificaciones la primera vez
+    iOS    : La app pedirá permiso al iniciar
+
+  Si las notificaciones no aparecen:
+    Ajustes del teléfono → Notificaciones → KOA → Activar todo
+
+
+================================================================================
+SECCIÓN 16 — PREGUNTAS FRECUENTES
+================================================================================
+
+  P: ¿La app funciona sin internet?
+  R: Sí. Los registros se guardan localmente. Solo el login, cámara y
+     sincronización con cuidadores requieren conexión.
+
+  P: ¿Puedo usar la app para más de un bebé?
+  R: Sí. Puedes tener múltiples perfiles de bebé en la misma cuenta.
+     En la pantalla de perfil toca "Agregar nuevo bebé".
+
+  P: ¿Qué pasa si la cámara no conecta?
+  R: Verifica que el bridge.py esté corriendo en la PC y que la cámara
+     esté en la misma red local que la PC. Si la IP de la cámara cambió,
+     actualiza home_bridge/config.json con la IP correcta.
+
+  P: ¿Cómo sé qué APK instalar en mi Android?
+  R: Dispositivos 2018 o más nuevos → arm64
+     Galaxy Tab A 2017 y dispositivos viejos → arm32
+     En caso de duda, intenta primero arm64.
+
+  P: ¿Puedo recuperar mis datos si desinstalo la app?
+  R: Los datos en Supabase (cloud) se recuperan al volver a iniciar sesión.
+     Los datos locales (SharedPreferences) se pierden al desinstalar.
+
+  P: ¿Los cuidadores ven mis datos personales?
+  R: Los cuidadores ven solo los datos del bebé. La información de tu
+     cuenta (contraseña, email, datos biométricos) es privada.
+
+  P: ¿Qué es el Plan Demo?
+  R: Es una versión especial compilada con --dart-define=DEMO_MODE=true
+     que desbloquea todas las funciones Premium sin pago real.
+     El APK demo está en: releases/android/KOA-v1.0-DEMO-android.apk
+
+  P: ¿Cómo evito que la cámara cambie de IP?
+  R: Entra a tu router (192.168.1.1) → DHCP → Reservas
+     Asigna siempre la misma IP a la dirección MAC de la cámara.
+
+  P: ¿Por qué el bono diario solo da 1 punto?
+  R: El bono diario es un incentivo pequeño por abrir la app cada día.
+     Los puntos principales se ganan usando las funciones activamente.
+
+
+================================================================================
+SECCIÓN 17 — SOPORTE TÉCNICO
+================================================================================
+
+  Repositorio : https://github.com/alonzozaldivar/koa-baby-monitor-native-app
+  Email       : alonzo.zaldivar.29@gmail.com
+
+  Para reportar un error, incluye:
+    1. Versión de la app (1.0.0)
+    2. Modelo del dispositivo y versión de Android/iOS
+    3. Descripción del problema
+    4. Pasos para reproducirlo
+
+
+================================================================================
+SECCIÓN 18 — GUÍA RÁPIDA DE INICIO
+================================================================================
+
+  DÍA 1 — Configuración inicial
+  ─────────────────────────────
+  ☐  1. Instalar el APK correcto para tu dispositivo
+  ☐  2. Ver video intro (o saltarlo con el botón "Saltar")
+  ☐  3. Crear cuenta con nombre, email y contraseña
+  ☐  4. Agregar cuidadores si aplica
+  ☐  5. Registrar el perfil del bebé (nombre, fecha nac., foto)
+  ☐  6. Guardar el número del pediatra en la sección Pediatra
+  ☐  7. Activar la cartilla de vacunación en Salud → Vacunas
+
+  DÍA 1 — Uso básico
+  ──────────────────
+  ☐  8. Registrar la primera toma en Comida
+  ☐  9. Iniciar sesión de sueño cuando el bebé duerma
+  ☐ 10. Reclamar el bono diario de 1 KOA Punto ⭐
+  ☐ 11. Configurar un medicamento si aplica
+
+  SEMANA 1 — Aprovecha al máximo
+  ───────────────────────────────
+  ☐ 12. Agregar la primera medición de peso y talla (Salud → Crecimiento)
+  ☐ 13. Registrar el primer hito en el Diario de Recuerdos
+  ☐ 14. Agendar la próxima cita médica
+  ☐ 15. Configurar la cámara IP si tienes una (requiere Home Bridge en PC)
+  ☐ 16. Acumular 25 KOA Puntos para primer canje en la Tienda
+
+
+================================================================================
+  Fin del documento — MANUAL_USUARIO.txt
+================================================================================

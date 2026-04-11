@@ -1,0 +1,563 @@
+================================================================================
+  KOA BABY MONITOR — REPORTE TÉCNICO
+================================================================================
+  Versión    : 1.0.0+1
+  Fecha      : Abril 2026
+  Plataforma : Flutter (Android / iOS)
+  Repositorio: https://github.com/alonzozaldivar/koa-baby-monitor-native-app
+================================================================================
+
+
+================================================================================
+1. DESCRIPCIÓN GENERAL
+================================================================================
+
+KOA es una aplicación móvil multiplataforma de monitoreo de bebé desarrollada
+con Flutter. Combina registro de actividades del bebé, monitor de cámara IP
+remoto, biometría facial, notificaciones locales y un sistema de puntos de
+lealtad. El backend es gestionado por Supabase (PostgreSQL + Auth + Storage).
+
+--------------------------------------------------------------------------------
+1.1 OBJETIVOS TÉCNICOS
+--------------------------------------------------------------------------------
+  - App nativa Android (arm32 / arm64) e iOS (15.5+)
+  - Autenticación segura con Supabase Auth (JWT)
+  - Reconocimiento facial on-device con MobileFaceNet + TFLite
+  - Monitor de cámara IP remoto sin port-forwarding via Supabase Storage
+  - Multi-cuenta: usuario principal + cuidadores vinculados
+  - Persistencia local (SharedPreferences) + nube (Supabase PostgREST)
+  - Sistema de puntos KOA Puntos con tienda de recompensas
+
+--------------------------------------------------------------------------------
+1.2 ESTADÍSTICAS DEL CÓDIGO
+--------------------------------------------------------------------------------
+  Archivos Dart            : 26 archivos
+  Líneas en main.dart      : 12,199 líneas
+  Archivos de servicio     : 10 servicios
+  Archivos de pantalla     : 6 pantallas dedicadas
+  Versión Flutter SDK      : ^3.10.7
+  Versión de la app        : 1.0.0+1
+
+
+================================================================================
+2. ARQUITECTURA DEL SISTEMA
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  DISPOSITIVO MÓVIL (Flutter App)                                        │
+│                                                                         │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐  │
+│  │  Auth /     │  │  Baby Data  │  │  Camera      │  │  Local      │  │
+│  │  Biometría  │  │  CRUD       │  │  Monitor     │  │  Storage    │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬───────┘  └──────┬──────┘  │
+│         │                │                │                  │         │
+└─────────┼────────────────┼────────────────┼──────────────────┼─────────┘
+          │                │                │                  │
+          ▼                ▼                ▼                  ▼
+┌─────────────────┐  ┌───────────┐  ┌─────────────┐  ┌──────────────────┐
+│ Supabase Auth   │  │ Supabase  │  │ Supabase    │  │ SharedPreferences│
+│ /auth/v1/       │  │ PostgREST │  │ Storage     │  │ (offline cache)  │
+└─────────────────┘  └───────────┘  └──────┬──────┘  └──────────────────┘
+                                            ▲
+                                            │ frames JPEG
+                                     ┌──────┴───────┐
+                                     │ Home Bridge  │
+                                     │ (Python PC)  │
+                                     └──────┬───────┘
+                                            │ RTSP
+                                     ┌──────┴───────┐
+                                     │ Cámara IP    │
+                                     │ TV-628 ONVIF │
+                                     └──────────────┘
+
+
+================================================================================
+3. ESTRUCTURA DE ARCHIVOS
+================================================================================
+
+baby_monitor_native_app/
+├── lib/
+│   ├── main.dart                        # Núcleo: 12,199 líneas
+│   │                                      Contiene todas las páginas principales:
+│   │                                      InitialScreen, IntroVideoPage,
+│   │                                      ProfileSelectionPage, BiometricLoginPage,
+│   │                                      MainNavigationPage, HomeContent,
+│   │                                      RegistroPage, StatsPage, SettingsPage,
+│   │                                      FoodPage, SleepPage, HealthPage,
+│   │                                      MemoriesDiaryPage, CameraMonitorPage,
+│   │                                      InfantRegistrationPage, CaregiversSection,
+│   │                                      PediatricianCallPage, TiendaKoaPage (banner)
+│   │
+│   ├── config/
+│   │   ├── supabase_config.dart         # URL y anon key de Supabase
+│   │   └── supabase_client.dart         # Cliente global + effectiveUserId
+│   │
+│   ├── data/
+│   │   ├── koala_tips.dart              # Tips del koala por sección
+│   │   ├── vaccine_schedule.dart        # Esquema de vacunación OMS
+│   │   └── who_standards.dart          # Estándares WHO peso/talla
+│   │
+│   ├── models/
+│   │   ├── app_models.dart              # BabyProfile, FeedingEntry, etc.
+│   │   └── baby_profile.dart            # Modelo perfil del bebé
+│   │
+│   ├── screens/
+│   │   ├── welcome_screen.dart          # Pantalla de bienvenida (login/registro)
+│   │   ├── login_screen.dart            # Login + recuperación de contraseña
+│   │   ├── register_screen.dart         # Registro + agregar cuidadores
+│   │   ├── face_capture_screen.dart     # Captura facial (biometría)
+│   │   ├── premium_paywall_page.dart    # Paywall MXN $199/mes
+│   │   └── tienda_koa_page.dart         # Tienda de KOA Puntos
+│   │
+│   ├── services/
+│   │   ├── auth_service.dart            # Supabase Auth (login, registro, facial)
+│   │   ├── camera_relay_service.dart    # Monitor remoto vía Supabase Storage
+│   │   ├── caregiver_account_service.dart # Cuentas cuidadores + family_links
+│   │   ├── face_embedding_service.dart  # MobileFaceNet TFLite (on-device)
+│   │   ├── koa_points_service.dart      # Sistema de puntos y recompensas
+│   │   ├── notification_service.dart    # Notificaciones locales programadas
+│   │   ├── storage_service.dart         # SharedPreferences (cache offline)
+│   │   ├── subscription_service.dart    # Control acceso Premium
+│   │   ├── supabase_service.dart        # CRUD Supabase todas las tablas
+│   │   └── update_service.dart          # Detección de actualizaciones
+│   │
+│   └── widgets/
+│       ├── koala_tip_widget.dart        # Widget de tips animados del koala
+│       └── update_dialog.dart           # Diálogo de actualización disponible
+│
+├── home_bridge/
+│   ├── bridge.py                        # Python: RTSP → Supabase (v1.2)
+│   ├── config.json                      # Credenciales del bridge (no en git)
+│   ├── requirements.txt                 # opencv-python, requests
+│   └── start.bat                        # Lanzador Windows
+│
+├── supabase_schema.sql                  # Esquema completo BD + RLS
+├── releases/
+│   └── android/
+│       ├── KOA-v1.0-android-arm64.apk  # Para Honor, Samsung moderno (62 MB)
+│       ├── KOA-v1.0-android-arm32.apk  # Para Galaxy Tab A, dispositivos viejos (55 MB)
+│       └── KOA-v1.0-android-x86_64.apk # Para emuladores (70 MB)
+└── assets/
+    ├── images/                          # Imágenes y logos KOA
+    ├── videos/                          # video_intro_koa.mp4
+    └── models/                          # mobilefacenet.tflite (~5 MB)
+
+
+================================================================================
+4. BASE DE DATOS — SUPABASE POSTGRESQL
+================================================================================
+
+  URL del proyecto : https://ujbqnsdznvjjrqbrguyx.supabase.co
+  Motor            : PostgreSQL (gestionado por Supabase)
+  Seguridad        : Row Level Security (RLS) en todas las tablas
+
+--------------------------------------------------------------------------------
+4.1 TABLAS PRINCIPALES
+--------------------------------------------------------------------------------
+
+  auth.users            → Tabla nativa de Supabase Auth
+  public.users          → Perfil extendido (id, email, full_name)
+  public.face_biometrics → Vectores faciales JSONB (id, user_id, face_encoding)
+  public.baby_profiles  → Perfiles de bebés (nombre, fecha nac., género, foto)
+  public.feeding_entries → Tomas registradas (tipo, cantidad, givenBy)
+  public.medical_appointments → Citas médicas programadas
+  public.medicines       → Medicamentos con horarios (JSONB times[])
+  public.vaccine_records → Cartilla de vacunación + refuerzos
+  public.sleep_sessions  → Sesiones de sueño (inicio, fin, duración)
+  public.diary_milestones → Hitos del diario con fotos
+  public.camera_configs  → Configuración cámaras IP por usuario
+  public.camera_streams  → Estado en tiempo real de cámaras (heartbeat)
+  public.ptz_commands    → Cola de comandos PTZ remotos
+  public.family_links    → Vínculos usuario principal ↔ cuidadores
+
+--------------------------------------------------------------------------------
+4.2 FUNCIONES POSTGRESQL
+--------------------------------------------------------------------------------
+
+  handle_new_user()           → Trigger: crea public.users al registrarse
+  update_updated_at_column()  → Trigger: actualiza updated_at en UPDATE
+  clean_old_ptz_commands()    → RPC: elimina comandos PTZ >5 min de antigüedad
+  is_family_member(owner_id)  → Función RLS: verifica si usuario es cuidador
+
+--------------------------------------------------------------------------------
+4.3 POLÍTICAS RLS (Patrón general)
+--------------------------------------------------------------------------------
+
+  SELECT : auth.uid() = user_id OR is_family_member(user_id)
+  INSERT : auth.uid() = user_id OR is_family_member(user_id)
+  UPDATE : auth.uid() = user_id
+  DELETE : auth.uid() = user_id
+
+--------------------------------------------------------------------------------
+4.4 SUPABASE STORAGE — BUCKETS
+--------------------------------------------------------------------------------
+
+  baby-photos        → Fotos de perfil de bebés (públicas)
+  milestone-photos   → Fotos de hitos del diario (públicas)
+  camera-streams     → Frames JPEG de cámaras (URLs firmadas 5 min)
+
+
+================================================================================
+5. SERVICIOS Y APIS
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 AuthService (lib/services/auth_service.dart)
+--------------------------------------------------------------------------------
+  signUp(email, password, fullName)     → Registro Supabase Auth
+  signIn(email, password)               → Login con JWT
+  signInWithFace(faceEncoding)          → Login biométrico (coseno ≥ 0.75)
+  signOut()                             → Cierre de sesión
+  resetPassword(email)                  → Email de recuperación
+  updatePassword(newPassword)           → Actualizar contraseña
+  registerFaceBiometric(encoding)       → Guardar vector facial
+  deleteAccount()                       → Eliminación completa (5 pasos)
+  authStateChanges                      → Stream<AuthState>
+
+--------------------------------------------------------------------------------
+5.2 FaceEmbeddingService (lib/services/face_embedding_service.dart)
+--------------------------------------------------------------------------------
+  Modelo        : MobileFaceNet (assets/models/mobilefacenet.tflite, ~5 MB)
+  Input tensor  : [1, 112, 112, 3] float32, normalizado [-1, 1]
+  Output tensor : [1, 192] float32 L2-normalizado
+  initialize()                          → Carga modelo TFLite
+  generateEmbedding(bytes, faceBounds)  → Pipeline 7 pasos → List<double>
+  cosineSimilarity(a, b)                → Similitud coseno [0.0, 1.0]
+  Umbral autenticación                  : 0.75 (75%)
+
+--------------------------------------------------------------------------------
+5.3 CameraRelayService (lib/services/camera_relay_service.dart)
+--------------------------------------------------------------------------------
+  Singleton. Polling cada 500ms (2fps por defecto).
+  getRemoteCameras()                    → Lista cámaras disponibles
+  startPolling(cameraId, fps)           → Inicia polling de frames
+  stopPolling()                         → Detiene polling
+  sendPTZCommand(cameraId, command)     → Inserta en ptz_commands
+  frameStream                           → Stream<Uint8List> frames JPEG
+  stateStream                           → Stream<RemoteCameraState>
+  Heartbeat timeout                     : 30 segundos
+
+--------------------------------------------------------------------------------
+5.4 CaregiverAccountService (lib/services/caregiver_account_service.dart)
+--------------------------------------------------------------------------------
+  createCaregiverAccount(name, email, password, role)
+      → HTTP POST /auth/v1/signup (sin reemplazar sesión activa)
+      → INSERT family_links {owner_user_id, caregiver_user_id, role}
+  getOwnerUserId()      → owner_user_id si es cuidador, null si es principal
+  isCaregiver()         → bool
+  getCaregivers()       → List<FamilyLink>
+  removeCaregiver()     → DELETE family_links
+  autoLinkOnLogin()     → Auto-vincula al login si metadata tiene is_caregiver=true
+
+--------------------------------------------------------------------------------
+5.5 KoaPointsService (lib/services/koa_points_service.dart)
+--------------------------------------------------------------------------------
+  Almacenamiento : SharedPreferences (koa_points_balance, koa_points_history)
+  getBalance()                          → int (saldo actual)
+  addPoints(amount, reason)             → Ganar puntos
+  redeemPoints(cost, reward)            → Canjear (retorna bool éxito)
+  claimDailyBonus()                     → +1 pto/día (retorna ptos ganados)
+  getHistory()                          → List<KoaPointsEntry>
+
+  Tabla de puntos por acción:
+    Registrar toma          : +1 pto
+    Sesión de sueño         : +1 pto
+    Vacuna aplicada         : +2 ptos
+    Cita médica             : +2 ptos
+    Medicamento/medición    : +2 ptos
+    Hito en diario          : +3 ptos
+    Crear perfil bebé       : +5 ptos
+    Bono diario             : +1 pto
+
+  Tabla de canjes:
+    MXN $25 descuento       : 25 ptos
+    MXN $50 descuento       : 50 ptos
+    1 mes Premium gratis    : 199 ptos
+    10% descuento anual     : 100 ptos
+
+--------------------------------------------------------------------------------
+5.6 NotificationService (lib/services/notification_service.dart)
+--------------------------------------------------------------------------------
+  Plugin : flutter_local_notifications + timezone
+  Zona horaria por defecto : America/Mexico_City
+  Canales:
+    appointments_channel      → 1h antes de la cita
+    medicines_channel         → Diario a la hora de dosis
+    feeding_channel           → Próxima toma calculada
+    feeding_reminder_channel  → Recordatorio manual
+
+--------------------------------------------------------------------------------
+5.7 StorageService (lib/services/storage_service.dart)
+--------------------------------------------------------------------------------
+  Plugin : shared_preferences (caché offline)
+  Entidades: FeedingEntry (+ givenBy), MedicalAppointment, MedicineReminder
+             (+ doseConfirmations), HealthMeasurement, VaccineRecord
+             (+ boosterDates), SleepSession
+  Patrón : save___() / load___() / clear___() por entidad
+
+--------------------------------------------------------------------------------
+5.8 Home Bridge (home_bridge/bridge.py) — Python
+--------------------------------------------------------------------------------
+  Versión     : KOA Home Bridge v1.2
+  Dependencias: opencv-python, requests
+  Funciones:
+    SupabaseREST     → Cliente HTTP sin SDK (sign_in, upsert, select, upload)
+    CameraWorker     → Thread por cámara (captura RTSP, sube JPEG, PTZ)
+    cleanup_worker   → Thread: RPC clean_old_ptz_commands cada 60s
+
+  Parámetros:
+    RTSP transport   : TCP (con fallback a UDP)
+    Timeout RTSP     : 8 segundos (era 30s)
+    JPEG quality     : 70% (max 150 KB por frame)
+    Heartbeat        : cada 10 segundos
+    Reconnect delay  : 3 segundos
+
+
+================================================================================
+6. FLUJO DE AUTENTICACIÓN
+================================================================================
+
+  6.1 REGISTRO NUEVO USUARIO
+  ──────────────────────────
+  1. Usuario llena nombre, email, contraseña → AuthService.signUp()
+  2. Supabase crea auth.users → trigger handle_new_user() crea public.users
+  3. App pregunta: "¿Agregar cuidador?" → CaregiverAccountService.createCaregiverAccount()
+  4. Cuidador creado via HTTP POST sin afectar sesión activa
+  5. family_links vincula ambas cuentas
+  6. Navega a ProfileSelectionPage
+
+  6.2 LOGIN CON EMAIL
+  ───────────────────
+  1. AuthService.signIn(email, password) → JWT session
+  2. clearEffectiveUserId() → resetea caché
+  3. CaregiverAccountService.autoLinkOnLogin() → auto-vincula si es cuidador
+  4. getEffectiveUserId() detecta si es cuidador → usa owner_user_id
+
+  6.3 LOGIN FACIAL
+  ────────────────
+  1. Cámara captura frame → ML Kit detecta rostro
+  2. FaceEmbeddingService.generateEmbedding() → vector 192D
+  3. AuthService.signInWithFace() → SELECT face_biometrics
+  4. Similitud coseno con todos los vectores → acepta si ≥ 0.75
+
+  6.4 RECUPERACIÓN DE CONTRASEÑA
+  ──────────────────────────────
+  1. Usuario toca "¿Olvidaste tu contraseña?"
+  2. Ingresa email (pre-llenado si ya estaba escrito)
+  3. AuthService.resetPassword(email) → supabase.auth.resetPasswordForEmail()
+  4. Supabase envía correo con link de reseteo
+  5. Usuario sigue el link → crea nueva contraseña
+
+
+================================================================================
+7. MONITOR DE CÁMARA REMOTA
+================================================================================
+
+  Arquitectura sin port-forwarding:
+
+  [Cámara IP TV-628]
+      │ RTSP (TCP, timeout 8s)
+      ▼
+  [PC Local — bridge.py]
+      │ Captura frame → resize 640px → JPEG 70%
+      │ POST /storage/v1/object/camera-streams/{userId}/{camId}/latest.jpg
+      │ POST /rest/v1/camera_streams  (UPSERT: URL firmada + heartbeat)
+      ▼
+  [Supabase Storage + PostgreSQL]
+      │ Polling cada 500ms
+      ▼
+  [Flutter App — CameraRelayService]
+      │ SELECT camera_streams
+      │ HTTP GET frame_url (firmada 5 min)
+      │ Stream<Uint8List> → Image.memory()
+      ▼
+  [Pantalla del usuario — en cualquier parte del mundo]
+
+  Control PTZ:
+  [App] INSERT ptz_commands → [Bridge] SELECT ptz_commands → ONVIF/SOAP → Cámara
+
+
+================================================================================
+8. SISTEMA DE CUIDADORES (family_links)
+================================================================================
+
+  Tabla family_links:
+    owner_user_id    → UUID del usuario principal
+    caregiver_user_id → UUID del cuidador
+    caregiver_name   → Nombre del cuidador
+    role             → Mamá / Papá / Abuelo/a / Niñera / Otro
+    linked_at        → Timestamp del vínculo
+
+  effectiveUserId (lib/config/supabase_client.dart):
+    - Cacheado en memoria (_cachedEffectiveUserId)
+    - Si usuario es cuidador → retorna owner_user_id
+    - Si usuario es principal → retorna su propio ID
+    - Se limpia al hacer logout (clearEffectiveUserId())
+
+  givenBy (quién dio la toma):
+    - FeedingEntry.givenBy       → nombre del autenticado al registrar toma
+    - MedicineDoseConfirmation   → nombre al presionar "Confirmar toma"
+    - Se obtiene de supabase.auth.currentUser.userMetadata['full_name']
+    - Fallback: parte del email antes del @
+
+
+================================================================================
+9. MÓDULOS FUNCIONALES
+================================================================================
+
+  MÓDULO               PANTALLA              ALMACENAMIENTO
+  ─────────────────────────────────────────────────────────
+  Registro bebé        InfantRegistrationPage SharedPreferences
+  Alimentación         FoodPage               StorageService.feeding_entries
+  Sueño                SleepPage              StorageService.sleep_sessions
+  Salud / Citas        HealthPage (Tab 1)     StorageService.appointments
+  Medicamentos         HealthPage (Tab 2)     StorageService.medicines
+  Crecimiento          HealthPage (Tab 3)     StorageService.measurements
+  Vacunas              HealthPage (Tab 4)     StorageService.vaccines
+  Diario               MemoriesDiaryPage      SupabaseService.diary_milestones
+  Cámara               CameraMonitorPage      CameraRelayService (en tiempo real)
+  Estadísticas         StatsPage              Agrega datos locales
+  Pediatra             PediatricianCallPage   SharedPreferences (telefono)
+  KOA Puntos           TiendaKoaPage          KoaPointsService (SharedPrefs)
+  Cuidadores           CaregiversSection      SupabaseService.family_links
+  Perfil bebé          ProfileSelectionPage   SharedPreferences + Supabase
+
+
+================================================================================
+10. PLANES Y SUSCRIPCIONES
+================================================================================
+
+  PLAN GRATUITO:
+    - Perfil del bebé
+    - Registro de comidas
+    - Seguimiento del sueño
+    - Medicinas y citas
+    - Diario de recuerdos
+
+  PLAN PREMIUM (MXN $199/mes o $1,499/año):
+    - Todo lo del plan gratuito
+    - Cámara monitor
+    - Cartilla de vacunación
+    - Llamar al pediatra
+    - Agregar cuidadores
+    - Registro de actividades
+    - Estadísticas
+
+  DEMO MODE (compilar con --dart-define=DEMO_MODE=true):
+    - Todas las funciones Premium desbloqueadas
+    - Sin requerir suscripción
+
+  Implementación: SubscriptionService + SharedPreferences ('is_premium')
+
+
+================================================================================
+11. PLATAFORMAS Y BUILDS
+================================================================================
+
+  ANDROID
+  ────────
+  Package name     : com.example.baby_monitor_native_app
+  Flavors          : production, demo
+  Min SDK          : 23 (Android 6.0)
+  Target SDK       : flutter.targetSdkVersion
+  Arquitecturas    : armeabi-v7a (arm32), arm64-v8a, x86_64
+  JDK requerido    : Java 17+ (usar Android Studio JBR)
+  Build command    : flutter build apk --flavor production --split-per-abi
+
+  APKs generados:
+    KOA-v1.0-android-arm64.apk    62 MB  → Honor, Samsung modernos
+    KOA-v1.0-android-arm32.apk    55 MB  → Galaxy Tab A 2017, dispositivos viejos
+    KOA-v1.0-android-x86_64.apk   70 MB  → Emuladores
+
+  iOS
+  ────
+  Bundle ID        : com.example.babyMonitorNativeApp
+  Min iOS          : 15.5
+  Podfile settings : ENABLE_BITCODE=NO, EXCLUDED_ARCHS iphonesimulator=arm64
+  Permisos Info.plist:
+    NSCameraUsageDescription
+    NSMicrophoneUsageDescription
+    NSPhotoLibraryUsageDescription
+    NSPhotoLibraryAddUsageDescription
+    NSLocalNetworkUsageDescription
+  Build command    : flutter build ios --release (requiere Mac con Xcode)
+
+
+================================================================================
+12. DEPENDENCIAS PRINCIPALES (pubspec.yaml)
+================================================================================
+
+  supabase_flutter        ^2.5.0   Backend Auth + DB + Storage
+  tflite_flutter          ^0.12.1  Inferencia MobileFaceNet on-device
+  google_mlkit_face_detection ^0.12.0  Detección de rostros
+  camera                  ^0.11.1  Acceso a cámara del dispositivo
+  flutter_local_notifications ^17.2.3  Notificaciones locales
+  shared_preferences      ^2.2.2   Almacenamiento local offline
+  video_player            ^2.9.2   Reproducción del video intro
+  fl_chart                ^0.69.0  Gráficas de crecimiento OMS
+  media_kit                ^1.1.11  Reproductor RTSP local
+  http                    ^1.2.2   Cliente HTTP (relay cámara)
+  pdf                     ^3.10.8  Exportación de estadísticas
+  image_picker            ^1.1.2   Selección de fotos
+  permission_handler      ^11.3.0  Permisos Android/iOS
+  provider                ^6.1.2   Gestión de estado (AppState)
+  intl                    ^0.20.2  Formateo de fechas e i18n
+  url_launcher            ^6.3.1   Llamadas telefónicas (pediatra)
+
+
+================================================================================
+13. INTERNACIONALIZACIÓN (i18n)
+================================================================================
+
+  Idiomas soportados : Español (es) — Inglés (en)
+  Implementación    : AppState.tr(key) con Map<String, Map<String, String>>
+  Más de 80 claves  de traducción implementadas
+  Cambio de idioma  : instantáneo, recarga widgets y tips del koala
+  KoalaTipWidget    : didUpdateWidget detecta cambio de idioma y recarga tips
+
+
+================================================================================
+14. CORRECCIONES APLICADAS EN ESTA VERSIÓN
+================================================================================
+
+  BUG-01  Citas no aparecían como "Próxima cita"
+          Causa: showDatePicker retorna midnight → isAfter(DateTime.now()) fallaba
+          Fix  : Comparar solo fecha (año/mes/día) ignorando la hora
+
+  BUG-02  Medicamentos no se guardaban
+          Causa: NavigatorState().context en debugPrint lanzaba null error
+                 Sin try-catch → medicine nunca se guardaba
+          Fix  : Eliminar NavigatorState().context + agregar try-catch
+
+  BUG-03  Botón "Saltar" del video intro no funcionaba
+          Causa: _goNext() requería _hasNavigated==true pero el flag solo
+                 se activaba al terminar el video automáticamente
+          Fix  : Invertir lógica: if (!mounted || _hasNavigated) return
+                 y establecer _hasNavigated=true antes de navegar
+
+  BUG-04  Código muerto en AuthService.signInWithFace()
+          Causa: if (userData == null) tras .single() (siempre non-null)
+          Fix  : Eliminar comprobación redundante
+
+  MEJORA-01  Home Bridge RTSP timeout 30s → 8s + TCP transport
+  MEJORA-02  Auto-detección IP de cámara al cambiar por DHCP
+  MEJORA-03  effectiveUserId para soporte multi-cuidador
+
+
+================================================================================
+15. REPOSITORIO GIT
+================================================================================
+
+  URL     : https://github.com/alonzozaldivar/koa-baby-monitor-native-app
+  Rama    : main
+  Commits recientes:
+    baea0a9  fix: boton Saltar del video intro no navegaba
+    e60df90  release: APKs Android v1.0 produccion
+    43fd9af  feat: recuperacion de contrasena funcional con email de Supabase
+    dfb832e  feat: sistema completo KOA v2 - multiples mejoras
+    3fba0f4  (commits anteriores)
+
+
+================================================================================
+  Fin del documento — REPORTE_TECNICO.txt
+================================================================================
