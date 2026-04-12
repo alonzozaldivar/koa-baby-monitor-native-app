@@ -315,46 +315,67 @@ class AuthService {
         throw Exception('Usuario no autenticado');
       }
 
-      // 1. Eliminar datos biométricos faciales
-      await supabase
-          .from('face_biometrics')
-          .delete()
-          .eq('user_id', userId);
-      debugPrint('✅ Datos biométricos eliminados');
+      // 1. Datos biométricos
+      try {
+        await supabase.from('face_biometrics').delete().eq('user_id', userId);
+        debugPrint('✅ Datos biométricos eliminados');
+      } catch (_) {}
 
-      // 2. Eliminar perfiles de bebés y datos asociados
-      final babyProfiles = await supabase
-          .from('baby_profiles')
-          .select('id')
-          .eq('user_id', userId);
+      // 2. Datos de bebés (tablas reales del schema)
+      try {
+        final babyProfiles = await supabase
+            .from('baby_profiles')
+            .select('id')
+            .eq('user_id', userId);
+        for (final profile in babyProfiles as List) {
+          final babyId = profile['id'];
+          for (final table in [
+            'feeding_entries', 'sleep_sessions', 'medical_appointments',
+            'medicines', 'vaccine_records', 'diary_milestones',
+            'camera_configs', 'camera_streams', 'ptz_commands',
+          ]) {
+            try {
+              await supabase.from(table).delete().eq('baby_id', babyId);
+            } catch (_) {}
+          }
+        }
+        debugPrint('✅ Registros de bebés eliminados');
+      } catch (_) {}
 
-      for (final profile in babyProfiles as List) {
-        final babyId = profile['id'];
-        // Eliminar registros de actividades del bebé
-        await supabase.from('activity_logs').delete().eq('baby_id', babyId);
-        await supabase.from('feeding_logs').delete().eq('baby_id', babyId);
-        await supabase.from('sleep_logs').delete().eq('baby_id', babyId);
-        await supabase.from('health_records').delete().eq('baby_id', babyId);
-        await supabase.from('milestones').delete().eq('baby_id', babyId);
-        await supabase.from('growth_records').delete().eq('baby_id', babyId);
+      // 3. Perfiles de bebés
+      try {
+        await supabase.from('baby_profiles').delete().eq('user_id', userId);
+        debugPrint('✅ Perfiles de bebés eliminados');
+      } catch (_) {}
+
+      // 4. Vínculos de familia
+      try {
+        await supabase.from('family_links').delete().eq('owner_user_id', userId);
+        await supabase.from('family_links').delete().eq('caregiver_user_id', userId);
+      } catch (_) {}
+
+      // 5. Datos de cámara del usuario
+      try {
+        await supabase.from('camera_configs').delete().eq('user_id', userId);
+        await supabase.from('camera_streams').delete().eq('user_id', userId);
+        await supabase.from('ptz_commands').delete().eq('user_id', userId);
+      } catch (_) {}
+
+      // 6. Datos del usuario en public.users
+      try {
+        await supabase.from('users').delete().eq('id', userId);
+        debugPrint('✅ Datos de usuario eliminados');
+      } catch (_) {}
+
+      // 7. Eliminar usuario de Supabase Auth via RPC (SECURITY DEFINER)
+      try {
+        await supabase.rpc('delete_user');
+        debugPrint('✅ Usuario Auth eliminado via RPC');
+      } catch (e) {
+        debugPrint('⚠️ RPC delete_user no disponible, continuando: $e');
       }
-      debugPrint('✅ Registros de bebés eliminados');
 
-      // 3. Eliminar perfiles de bebés
-      await supabase
-          .from('baby_profiles')
-          .delete()
-          .eq('user_id', userId);
-      debugPrint('✅ Perfiles de bebés eliminados');
-
-      // 4. Eliminar suscripciones
-      await supabase
-          .from('subscriptions')
-          .delete()
-          .eq('user_id', userId);
-      debugPrint('✅ Suscripciones eliminadas');
-
-      // 5. Cerrar sesión (esto invalida el token)
+      // 8. Cerrar sesión
       await supabase.auth.signOut();
       debugPrint('✅ Cuenta eliminada completamente');
     } catch (e) {

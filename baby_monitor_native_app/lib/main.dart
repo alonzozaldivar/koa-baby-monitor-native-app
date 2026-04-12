@@ -1448,36 +1448,25 @@ class _BiometricLoginPageState extends State<BiometricLoginPage>
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               child: Column(
                 children: [
-                  Row(
+                  // Logo + title centrado
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        onPressed: _skipAuth,
+                      Image.asset(
+                        'assets/images/koa_logo.png',
+                        height: 44,
+                        errorBuilder: (_, __, ___) => const SizedBox(),
                       ),
-                      const Spacer(),
-                      // Logo + title centrado
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Image.asset(
-                            'assets/images/koa_logo.png',
-                            height: 44,
-                            errorBuilder: (_, __, ___) => const SizedBox(),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            appState.tr('face_auth'),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: 4),
+                      Text(
+                        appState.tr('face_auth'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
                       ),
-                      const Spacer(),
-                      const SizedBox(width: 48),
                     ],
                   ),
                 ],
@@ -9486,19 +9475,7 @@ class _HealthPageState extends State<HealthPage> with SingleTickerProviderStateM
               ],
             ),
           ),
-          // Icono de estado
-          if (vaccine.isApplied)
-            Icon(
-              Icons.check_circle,
-              color: Colors.green[600],
-              size: 24,
-            )
-          else
-            Icon(
-              Icons.radio_button_unchecked,
-              color: Colors.grey[400],
-              size: 24,
-            ),
+          // El estado ya lo muestra el Checkbox, no se duplica icono
         ],
       ),
     );
@@ -10961,11 +10938,12 @@ class _MilestoneCard extends StatelessWidget {
             children: [
               // Foto o placeholder
               if (hasPhoto)
-                AspectRatio(
-                  aspectRatio: 16 / 9,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 300),
                   child: Image.memory(
                     base64Decode(milestone.photoBase64!),
-                    fit: BoxFit.cover,
+                    fit: BoxFit.contain,
+                    width: double.infinity,
                   ),
                 )
               else

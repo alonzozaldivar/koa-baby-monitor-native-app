@@ -528,6 +528,20 @@ CREATE POLICY "Users and caregivers update medicines" ON public.medicines
   FOR UPDATE USING (auth.uid() = user_id OR is_family_member(user_id));
 
 -- ============================================================================
+-- FUNCIÓN: delete_user()
+-- Permite que un usuario elimine su propia cuenta de Supabase Auth.
+-- SECURITY DEFINER necesario para acceder a auth.users.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.delete_user()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM auth.users WHERE id = auth.uid();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.delete_user() TO authenticated;
+
+-- ============================================================================
 -- GRANTS (Permisos)
 -- ============================================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
