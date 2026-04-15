@@ -14,10 +14,27 @@ class NotificationService {
   static Future<void> initialize() async {
     if (_initialized) return;
 
-    // Inicializar timezone
+    // Inicializar timezone usando la zona del dispositivo
     tz.initializeTimeZones();
-    // Configurar zona horaria local (ajustar según tu ubicación)
-    tz.setLocalLocation(tz.getLocation('America/Mexico_City'));
+    try {
+      // Intentar obtener la zona horaria del offset del dispositivo
+      final offsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+      final offsetHours = offsetMinutes ~/ 60;
+      // Mapear offset a zona IANA más cercana
+      final tzName = {
+        -8: 'America/Los_Angeles',
+        -7: 'America/Mazatlan',
+        -6: 'America/Mexico_City',
+        -5: 'America/Mexico_City', // CDT
+        -4: 'America/Caracas',
+        -3: 'America/Argentina/Buenos_Aires',
+        0:  'UTC',
+      }[offsetHours] ?? 'America/Mexico_City';
+      tz.setLocalLocation(tz.getLocation(tzName));
+      debugPrint('⏰ Timezone: $tzName (offset: ${offsetHours}h)');
+    } catch (_) {
+      tz.setLocalLocation(tz.UTC);
+    }
 
     // Configuración para Android
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -46,17 +63,24 @@ class NotificationService {
     debugPrint('✅ NotificationService inicializado');
   }
 
-  /// Solicita permisos de notificaciones
+  /// Solicita permisos de notificaciones Y alarmas exactas
   static Future<bool> requestPermissions() async {
     if (!_initialized) await initialize();
 
-    // Android 13+ requiere permiso explícito
     final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
         _notifications.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
+      // 1. Permiso de notificaciones (Android 13+)
       final granted = await androidImplementation.requestNotificationsPermission();
+      // 2. Permiso de alarmas exactas (Android 12+) - necesario para Honor/Huawei
+      try {
+        await androidImplementation.requestExactAlarmsPermission();
+        debugPrint('✅ Permiso de alarmas exactas solicitado');
+      } catch (e) {
+        debugPrint('⚠️ requestExactAlarmsPermission no disponible: $e');
+      }
       return granted ?? false;
     }
 

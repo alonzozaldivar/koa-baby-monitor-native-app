@@ -3173,6 +3173,11 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
         .toList()
       ..sort((a, b) => a.x.compareTo(b.x));
 
+    // Si solo hay 1 punto, duplicar con offset para evitar crash en LineChart
+    if (babySpots.length == 1) {
+      babySpots.add(FlSpot(babySpots[0].x + 1, babySpots[0].y));
+    }
+
     // Curvas OMS
     final whoData = _gender == 'femenino' ? whoWeightFemale : whoWeightMale;
     final p3Spots = <FlSpot>[];
@@ -3187,7 +3192,15 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
       p97Spots.add(FlSpot(month.toDouble(), values['p97']!));
     }
 
+    // Rango visible: centrado en los datos del bebé
+    final minAge = (babySpots.first.x - 2).clamp(0.0, 60.0);
+    final maxAge = (babySpots.last.x + 4).clamp(1.0, 72.0);
+    final minW = (babySpots.map((s) => s.y).reduce((a, b) => a < b ? a : b) - 1).clamp(0.0, 30.0);
+    final maxW = (babySpots.map((s) => s.y).reduce((a, b) => a > b ? a : b) + 2).clamp(1.0, 35.0);
+
     return LineChartData(
+      minX: minAge, maxX: maxAge,
+      minY: minW,   maxY: maxW,
       gridData: FlGridData(
         show: true,
         drawVerticalLine: false,
@@ -3279,6 +3292,11 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
         .toList()
       ..sort((a, b) => a.x.compareTo(b.x));
 
+    // Si solo hay 1 punto, duplicar con offset para evitar crash en LineChart
+    if (babySpots.length == 1) {
+      babySpots.add(FlSpot(babySpots[0].x + 1, babySpots[0].y));
+    }
+
     // Curvas OMS
     final whoData = _gender == 'femenino' ? whoHeightFemale : whoHeightMale;
     final p3Spots = <FlSpot>[];
@@ -3293,7 +3311,15 @@ class _StatsPageState extends State<StatsPage> with SingleTickerProviderStateMix
       p97Spots.add(FlSpot(month.toDouble(), values['p97']!));
     }
 
+    // Rango visible: centrado en los datos del bebé
+    final minAge = (babySpots.first.x - 2).clamp(0.0, 60.0);
+    final maxAge = (babySpots.last.x + 4).clamp(1.0, 72.0);
+    final minH = (babySpots.map((s) => s.y).reduce((a, b) => a < b ? a : b) - 3).clamp(0.0, 120.0);
+    final maxH = (babySpots.map((s) => s.y).reduce((a, b) => a > b ? a : b) + 5).clamp(1.0, 130.0);
+
     return LineChartData(
+      minX: minAge, maxX: maxAge,
+      minY: minH,   maxY: maxH,
       gridData: FlGridData(
         show: true,
         drawVerticalLine: false,
@@ -5036,13 +5062,15 @@ class _FoodPageState extends State<FoodPage> {
 
   Future<void> _scheduleCustomReminder() async {
     final now = DateTime.now();
-    final scheduledDate = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      _reminderTime.hour,
-      _reminderTime.minute,
+    var scheduledDate = DateTime(
+      now.year, now.month, now.day,
+      _reminderTime.hour, _reminderTime.minute,
     );
+
+    // Si la hora ya pasó hoy, programar para mañana automáticamente
+    if (scheduledDate.isBefore(now.add(const Duration(seconds: 30)))) {
+      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
 
     final success = await NotificationService.scheduleCustomFeedingReminder(
       scheduledTime: scheduledDate,
@@ -5051,13 +5079,18 @@ class _FoodPageState extends State<FoodPage> {
 
     if (!mounted) return;
 
+    final h = _reminderTime.hour.toString().padLeft(2, '0');
+    final m = _reminderTime.minute.toString().padLeft(2, '0');
+    final esManana = scheduledDate.day != now.day;
+    final label = esManana
+        ? '🔔 Recordatorio para mañana a las $h:$m'
+        : '🔔 Recordatorio programado para las $h:$m';
+
     if (success) {
-      final h = _reminderTime.hour.toString().padLeft(2, '0');
-      final m = _reminderTime.minute.toString().padLeft(2, '0');
-      setState(() => _scheduledReminderLabel = '🔔 Recordatorio programado para las $h:$m');
+      setState(() => _scheduledReminderLabel = label);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('✅ Recordatorio programado para las $h:$m'),
+          content: Text('✅ $label'),
           backgroundColor: const Color(0xFF4F7A4A),
           duration: const Duration(seconds: 3),
         ),
@@ -5065,9 +5098,9 @@ class _FoodPageState extends State<FoodPage> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('⚠️ Esa hora ya pasó. Elige una hora futura.'),
+          content: Text('⚠️ No se pudo programar. Verifica los permisos de notificaciones.'),
           backgroundColor: Colors.orange,
-          duration: Duration(seconds: 3),
+          duration: Duration(seconds: 4),
         ),
       );
     }
